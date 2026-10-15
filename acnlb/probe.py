@@ -13,6 +13,7 @@
 import collections
 import os
 import re
+import struct
 
 from . import build, env, gamemap
 
@@ -87,6 +88,10 @@ def report(text):
         for (prof, v), (n, scenes) in sorted(actors.items()):
             out.append("  profile %-5d 0x%-4x  %-28s x%-3d scenes %s" % (prof, prof, names.get(v) or vt.get(v, "vtable 0x%x" % v), n, sorted(scenes)))
             if (prof, v) in words:
+                w = [int(t, 16) for t in words[(prof, v)].split()]
+                pos = struct.unpack("<3f", struct.pack("<3I", *w[5:8])) if len(w) >= 8 else None
+                if pos and all(abs(c) < 5000 for c in pos):
+                    out.append("      position (x, y, z): %.0f %.0f %.0f   (tile %d, %d)" % (pos[0], pos[1], pos[2], pos[0] // 32, pos[2] // 32))
                 out.append("      first words: " + words[(prof, v)])
     if calls:
         out.append("")

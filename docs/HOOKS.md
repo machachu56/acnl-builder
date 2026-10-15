@@ -61,6 +61,29 @@ These were found for the Builder and are used by buildings, rooms and scripts:
 The game's clock is not a hook: the 3DS keeps the date and time in a shared memory page (`0x1FF81000`, milliseconds since 1900,
 local time), which the plugin reads (`hour()`, `minute()`…).
 
+## Measured so far (probe logs of the real game)
+
+Actors the game creates (profile number = what `@on_actor` takes; these are built into Scripts as names):
+
+| profile | class | where seen | name in scripts |
+|---|---|---|---|
+| 105 (0x69) | `AcPlayer` | town | `Player` |
+| 454 (0x1c6) | `AcNpcSpSecretaryIn` | scene 38 (town hall) | `Isabelle` (inferred from the class and the `NPC_Secretary_*` flows) |
+| 492 (0x1ec) | `AcNpcSpShopTanukichi` | scene 65 (Nook's Homes, so also the Baisodrome) | `Tom Nook` |
+| 419 / 500 | `AcNpcSpHonma` / `AcNpcSpTakumiRealEstate` | scene 65 | `Honma` / `Takumi` |
+| 425, 468 | `AcNpcSpResetsan`, `AcNpcSpPerioNormal` | scenes 99, 0 | `Resetti`, `Pelly` |
+| 283-286 | `BsWeatherRain`, `Snow`, `Sakura`, `Paper` | scenes 0 and 94 (outdoors) | `Rain`, `Snow`, `Sakura`, `Paper` |
+| 402 | `AcNpcOut` | scene 94 | |
+
+* Scene numbers: 0 and 94 outdoors, 38 town hall, 65 Nook's Homes (the scene the Baisodrome's interior replaces), 99 the Resetti/title area, 165 boot.
+* All four weather effects exist as actors even when the sky is clear, so they are probably *always created and then switched on by the
+  weather state*: hiding the Rain actor at creation (`@on_actor("Rain")` + `hide_actor()`) should remove rain, but making it rain needs the function that
+  switches it on (not found yet). Probe `BsWeatherRain` on a rainy day (`ACNL_DAYS=n` in the environment shifts the date) and compare with a clear day: methods called
+  only when it rains are the candidates.
+* Ordinary villagers (`AcNpcNml`) are not created through the actor-creation function the probe watches; their methods run (`AcNpcNml.9`, `.12`, `.31`) but
+  how they get created is not known yet.
+* **Not yet seen:** the Baisodrome itself (the mod was not installed in that run), a villager changing a shirt (the save had no way to do it), rain or snow.
+
 ## Classes worth probing for the things people ask for
 
 Addresses are for the game version read by `python3 tools/gen_hooks_doc.py` (re-run it with your dump to refresh).

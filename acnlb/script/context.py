@@ -3,9 +3,19 @@ import functools
 
 from . import compiler
 
-# actors the game is known to create, by the profile number its actor factory takes (extended by `acnlb probe`
-# and by the project's own "actors" table: {"Isabelle": 123})
-KNOWN_ACTORS = {"Player": 0x69}
+# actors the game is known to create, by the profile number its actor factory takes (for this version of the game;
+# extend with `acnlb probe` and the project's own "actors" table)
+KNOWN_ACTORS = {
+    "Player": 0x69,
+    # seen in a game log (probe, `AcPlayer` etc. by class name); the person behind each name is inferred from the class name
+    "Isabelle": 454,           # AcNpcSpSecretaryIn: the secretary at the town hall counter (scene 38)
+    "Tom Nook": 492,           # AcNpcSpShopTanukichi: behind the counter of Nook's Homes (scene 65, the Baisodrome's interior too)
+    "Honma": 419,              # AcNpcSpHonma: also in Nook's Homes
+    "Takumi": 500,             # AcNpcSpTakumiRealEstate: also in Nook's Homes
+    "Resetti": 425,            # AcNpcSpResetsan
+    "Pelly": 468,              # AcNpcSpPerioNormal
+    "Rain": 283, "Snow": 284, "Sakura": 285, "Paper": 286,       # BsWeatherRain / Snow / Sakura / Paper: the weather effects
+}
 
 
 def rooms_of(proj, bld):
