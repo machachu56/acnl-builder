@@ -1,0 +1,7 @@
+__pycache__/
+.cache/
+exports/
+*.tmp
+*.acmod
+# images made from the game's own textures (texture studio) are never committed
+projects/*/assets/tex_*.png

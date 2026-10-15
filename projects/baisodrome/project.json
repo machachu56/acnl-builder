@@ -1,0 +1,1902 @@
+{
+ "format": 1,
+ "id": "baisodrome",
+ "title": "Baisodrome",
+ "author": "",
+ "description": "",
+ "version": "1.0",
+ "text": [],
+ "textures": [],
+ "villagers": [],
+ "designs": [],
+ "buildings": [
+  {
+   "id": "baisodrome",
+   "name": "Baisodrome",
+   "slot": 77,
+   "model": "sobj_baisod",
+   "scene": 65,
+   "dx": 4,
+   "dy": 7,
+   "interior": "baiso_in",
+   "hide_furniture": true,
+   "style": {
+    "base": "policeB"
+   },
+   "map_name": {
+    "en": "Baisodrome"
+   },
+   "map_icon": {
+    "shape": "heart",
+    "fill": "#f6548c",
+    "outline": "#78143c"
+   }
+  }
+ ],
+ "interiors": [
+  {
+   "id": "baiso_in",
+   "title": "Baisodrome interior",
+   "main": "main",
+   "materials": {
+    "floor_lobby": {
+     "type": "floor",
+     "preset": "hearts"
+    },
+    "wall_lobby": {
+     "type": "wall",
+     "preset": "stripes_hearts"
+    },
+    "floor_nuptial": {
+     "type": "floor",
+     "preset": "marble"
+    },
+    "wall_nuptial": {
+     "type": "wall",
+     "preset": "panel"
+    },
+    "floor_donjon": {
+     "type": "floor",
+     "preset": "flagstone"
+    },
+    "wall_donjon": {
+     "type": "wall",
+     "preset": "brick"
+    },
+    "floor_disco": {
+     "type": "floor",
+     "preset": "checker"
+    },
+    "wall_disco": {
+     "type": "wall",
+     "preset": "night"
+    },
+    "floor_spa": {
+     "type": "floor",
+     "preset": "tiles"
+    },
+    "wall_spa": {
+     "type": "wall",
+     "preset": "tiles"
+    },
+    "floor_panther": {
+     "type": "floor",
+     "preset": "leopard"
+    },
+    "wall_panther": {
+     "type": "wall",
+     "preset": "leopard"
+    },
+    "floor_vibro": {
+     "type": "floor",
+     "preset": "shag"
+    },
+    "wall_vibro": {
+     "type": "wall",
+     "preset": "tufted"
+    },
+    "lovely_floor": {
+     "type": "floor",
+     "game_texture": {
+      "path": "/Item/Model/carpet_lovely.bcres",
+      "name": "carpet_lovely"
+     }
+    },
+    "lovely_wall": {
+     "type": "wall",
+     "game_texture": {
+      "path": "/Item/Model/wall_lovely.bcres",
+      "name": "wall_lovely"
+     }
+    },
+    "rug_love": {
+     "type": "prop",
+     "image": "prop_rug_love.png",
+     "size": [
+      64,
+      64
+     ]
+    },
+    "vending": {
+     "type": "prop",
+     "image": "prop_vending.png",
+     "size": [
+      32,
+      64
+     ]
+    },
+    "vending_side": {
+     "type": "prop",
+     "image": "prop_vending_side.png",
+     "size": [
+      16,
+      64
+     ]
+    },
+    "price": {
+     "type": "prop",
+     "image": "prop_price.png",
+     "size": [
+      64,
+      48
+     ]
+    },
+    "whips": {
+     "type": "prop",
+     "image": "prop_whips.png",
+     "size": [
+      64,
+      32
+     ]
+    },
+    "neon_love": {
+     "type": "prop",
+     "image": "prop_neon_love.png",
+     "size": [
+      64,
+      32
+     ]
+    },
+    "counter": {
+     "type": "prop",
+     "image": "prop_counter.png",
+     "size": [
+      64,
+      32
+     ]
+    },
+    "leather": {
+     "type": "prop",
+     "image": "prop_leather.png",
+     "size": [
+      32,
+      32
+     ]
+    },
+    "cage": {
+     "type": "prop",
+     "image": "prop_cage.png",
+     "size": [
+      32,
+      32
+     ]
+    },
+    "mirrorball": {
+     "type": "prop",
+     "image": "prop_mirrorball.png",
+     "size": [
+      32,
+      32
+     ]
+    },
+    "speaker": {
+     "type": "prop",
+     "image": "prop_speaker.png",
+     "size": [
+      32,
+      32
+     ]
+    },
+    "towels": {
+     "type": "prop",
+     "image": "prop_towels.png",
+     "size": [
+      32,
+      32
+     ]
+    },
+    "coinbox": {
+     "type": "prop",
+     "image": "prop_coinbox.png",
+     "size": [
+      32,
+      32
+     ]
+    },
+    "water": {
+     "type": "prop",
+     "image": "prop_water.png",
+     "size": [
+      32,
+      32
+     ]
+    },
+    "counter_top": {
+     "type": "prop",
+     "image": "prop_counter_top.png",
+     "size": [
+      32,
+      32
+     ]
+    },
+    "fur": {
+     "type": "prop",
+     "image": "prop_fur.png",
+     "size": [
+      32,
+      32
+     ]
+    },
+    "married": {
+     "type": "prop",
+     "image": "prop_married.png",
+     "size": [
+      64,
+      16
+     ]
+    },
+    "vibro_sign": {
+     "type": "prop",
+     "image": "prop_vibro_sign.png",
+     "size": [
+      64,
+      16
+     ]
+    },
+    "cuffs": {
+     "type": "prop",
+     "image": "prop_cuffs.png",
+     "size": [
+      32,
+      16
+     ]
+    },
+    "tub_side": {
+     "type": "prop",
+     "image": "prop_tub_side.png",
+     "size": [
+      32,
+      16
+     ]
+    },
+    "gold": {
+     "type": "prop",
+     "image": "prop_gold.png",
+     "size": [
+      16,
+      16
+     ]
+    },
+    "chrome": {
+     "type": "prop",
+     "image": "prop_chrome.png",
+     "size": [
+      16,
+      16
+     ]
+    },
+    "black": {
+     "type": "prop",
+     "image": "prop_black.png",
+     "size": [
+      16,
+      16
+     ]
+    },
+    "candle": {
+     "type": "prop",
+     "image": "prop_candle.png",
+     "size": [
+      16,
+      16
+     ]
+    },
+    "duck": {
+     "type": "prop",
+     "image": "prop_duck.png",
+     "size": [
+      16,
+      16
+     ]
+    },
+    "petal": {
+     "type": "prop",
+     "image": "prop_petal.png",
+     "size": [
+      16,
+      16
+     ]
+    },
+    "tub_rim": {
+     "type": "prop",
+     "image": "prop_tub_rim.png",
+     "size": [
+      16,
+      16
+     ]
+    },
+    "bottle": {
+     "type": "prop",
+     "image": "prop_bottle.png",
+     "size": [
+      16,
+      16
+     ]
+    },
+    "glass": {
+     "type": "prop",
+     "image": "prop_glass.png",
+     "size": [
+      16,
+      16
+     ]
+    },
+    "bell": {
+     "type": "prop",
+     "image": "prop_bell.png",
+     "size": [
+      16,
+      16
+     ]
+    },
+    "condom": {
+     "type": "prop",
+     "image": "prop_condom.png",
+     "size": [
+      16,
+      16
+     ]
+    },
+    "lov_lamp_f": {
+     "type": "prop",
+     "size": [
+      32,
+      32
+     ],
+     "game_texture": {
+      "path": "/Item/Model/rmk_lov_lamp.bcres",
+      "name": "fabric_00"
+     }
+    }
+   },
+   "palettes": {
+    "nuptial": {
+     "wood": "#faf6f0",
+     "wood_dark": "#d6ccc8",
+     "accent": "#e2b450",
+     "accent_light": "#ffecaa",
+     "sheet": "#ffffff",
+     "sheet_dark": "#e6e2ec"
+    },
+    "donjon": {
+     "wood": "#2c1e22",
+     "wood_dark": "#140e10",
+     "accent": "#be1028",
+     "accent_light": "#fa465a",
+     "sheet": "#28141a",
+     "sheet_dark": "#140a0e"
+    },
+    "disco": {
+     "wood": "#282838",
+     "wood_dark": "#14141e",
+     "accent": "#ff3cbe",
+     "accent_light": "#78dcff",
+     "sheet": "#c8c8dc",
+     "sheet_dark": "#9696b4"
+    },
+    "panther": {
+     "wood": "#60381e",
+     "wood_dark": "#3c2212",
+     "accent": "#e2b450",
+     "accent_light": "#ffe696",
+     "sheet": null,
+     "sheet_dark": null
+    },
+    "vibro": {
+     "wood": "#461e64",
+     "wood_dark": "#28103c",
+     "accent": "#ff50dc",
+     "accent_light": "#ffb4fa",
+     "sheet": "#a050dc",
+     "sheet_dark": "#7832b4"
+    }
+   },
+   "rooms": [
+    {
+     "id": "main",
+     "rect": [
+      4,
+      5,
+      11,
+      13
+     ],
+     "floor": "floor_lobby",
+     "wall": "wall_lobby",
+     "name": "Lobby"
+    },
+    {
+     "id": "lovely",
+     "rect": [
+      0,
+      0,
+      4,
+      3
+     ],
+     "floor": "lovely_floor",
+     "wall": "lovely_wall",
+     "doors": [
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       4
+      ]
+     ],
+     "label": "Lovely"
+    },
+    {
+     "id": "nuptial",
+     "rect": [
+      6,
+      0,
+      9,
+      3
+     ],
+     "floor": "floor_nuptial",
+     "wall": "wall_nuptial",
+     "doors": [
+      [
+       7,
+       4
+      ],
+      [
+       8,
+       4
+      ]
+     ],
+     "label": "Nuptiale"
+    },
+    {
+     "id": "donjon",
+     "rect": [
+      11,
+      0,
+      15,
+      3
+     ],
+     "floor": "floor_donjon",
+     "wall": "wall_donjon",
+     "doors": [
+      [
+       10,
+       4
+      ],
+      [
+       11,
+       4
+      ]
+     ],
+     "label": "Donjon"
+    },
+    {
+     "id": "disco",
+     "rect": [
+      0,
+      5,
+      2,
+      8
+     ],
+     "floor": "floor_disco",
+     "wall": "wall_disco",
+     "doors": [
+      [
+       3,
+       7
+      ],
+      [
+       3,
+       8
+      ]
+     ],
+     "label": "Disco"
+    },
+    {
+     "id": "spa",
+     "rect": [
+      0,
+      10,
+      2,
+      13
+     ],
+     "floor": "floor_spa",
+     "wall": "wall_spa",
+     "doors": [
+      [
+       3,
+       12
+      ],
+      [
+       3,
+       13
+      ]
+     ],
+     "label": "Spa"
+    },
+    {
+     "id": "panther",
+     "rect": [
+      13,
+      5,
+      15,
+      8
+     ],
+     "floor": "floor_panther",
+     "wall": "wall_panther",
+     "doors": [
+      [
+       12,
+       7
+      ],
+      [
+       12,
+       8
+      ]
+     ],
+     "label": "Panthère"
+    },
+    {
+     "id": "vibro",
+     "rect": [
+      13,
+      10,
+      15,
+      13
+     ],
+     "floor": "floor_vibro",
+     "wall": "wall_vibro",
+     "doors": [
+      [
+       12,
+       12
+      ],
+      [
+       12,
+       13
+      ]
+     ],
+     "label": "Vibro"
+    }
+   ],
+   "items": [
+    {
+     "id": "i1",
+     "type": "box",
+     "x0": 322,
+     "x1": 350,
+     "y0": 0,
+     "y1": 26,
+     "z0": 322,
+     "z1": 382,
+     "mat": "counter",
+     "faces": {},
+     "block": [
+      [
+       10,
+       10
+      ],
+      [
+       10,
+       11
+      ]
+     ]
+    },
+    {
+     "id": "i2",
+     "type": "box",
+     "x0": 320,
+     "x1": 352,
+     "y0": 26,
+     "y1": 29,
+     "z0": 320,
+     "z1": 384,
+     "mat": "gold",
+     "faces": {
+      "top": "counter_top"
+     }
+    },
+    {
+     "id": "i3",
+     "type": "cyl",
+     "cx": 336,
+     "cz": 336,
+     "r": 3.5,
+     "y0": 29,
+     "y1": 33,
+     "side": "bell",
+     "top": "bell",
+     "n": 8
+    },
+    {
+     "id": "i4",
+     "type": "cyl",
+     "cx": 340,
+     "cz": 372,
+     "r": 4,
+     "y0": 29,
+     "y1": 40,
+     "side": "bottle",
+     "top": "gold",
+     "n": 6
+    },
+    {
+     "id": "i5",
+     "type": "extrude",
+     "shape": "oval",
+     "cx": 270,
+     "cz": 272,
+     "size": 104,
+     "y0": 0,
+     "y1": 6,
+     "side": "gold",
+     "top": "counter_top",
+     "block": [
+      [
+       7,
+       8
+      ],
+      [
+       8,
+       8
+      ]
+     ]
+    },
+    {
+     "id": "i6",
+     "type": "cyl",
+     "cx": 270,
+     "cz": 272,
+     "r": 22,
+     "y0": 6,
+     "y1": 16,
+     "side": "tub_rim",
+     "top": "glass",
+     "n": 10
+    },
+    {
+     "id": "i7",
+     "type": "cyl",
+     "cx": 270,
+     "cz": 272,
+     "r": 16,
+     "y0": 16,
+     "y1": 26,
+     "side": "tub_rim",
+     "top": "glass",
+     "n": 10
+    },
+    {
+     "id": "i8",
+     "type": "cyl",
+     "cx": 270,
+     "cz": 272,
+     "r": 10,
+     "y0": 26,
+     "y1": 36,
+     "side": "tub_rim",
+     "top": "glass",
+     "n": 10
+    },
+    {
+     "id": "i9",
+     "type": "cyl",
+     "cx": 270,
+     "cz": 272,
+     "r": 5,
+     "y0": 36,
+     "y1": 46,
+     "side": "tub_rim",
+     "top": "glass",
+     "n": 10
+    },
+    {
+     "id": "i10",
+     "type": "cyl",
+     "cx": 270,
+     "cz": 272,
+     "r": 1.5,
+     "y0": 46,
+     "y1": 54,
+     "side": "bottle",
+     "top": "gold",
+     "n": 6
+    },
+    {
+     "id": "i11",
+     "type": "game",
+     "path": "/Item/Model/rmk_lov_chairL.bcres",
+     "x": 192,
+     "z": 432,
+     "rot": 180,
+     "tex_cap": 128,
+     "block": [
+      [
+       5,
+       13
+      ],
+      [
+       6,
+       13
+      ],
+      [
+       5,
+       12
+      ],
+      [
+       6,
+       12
+      ]
+     ]
+    },
+    {
+     "id": "i12",
+     "type": "game",
+     "path": "/Item/Model/rmk_lov_tableM.bcres",
+     "x": 192,
+     "z": 400,
+     "rot": 0,
+     "tex_cap": 128
+    },
+    {
+     "id": "i13",
+     "type": "box",
+     "x0": 356,
+     "x1": 380,
+     "y0": 0,
+     "y1": 56,
+     "z0": 164,
+     "z1": 186,
+     "mat": "vending_side",
+     "faces": {
+      "front": "vending"
+     },
+     "block": [
+      [
+       11,
+       5
+      ]
+     ]
+    },
+    {
+     "id": "i14",
+     "type": "quad",
+     "pts": [
+      [
+       196,
+       48,
+       161
+      ],
+      [
+       252,
+       48,
+       161
+      ],
+      [
+       252,
+       90,
+       161
+      ],
+      [
+       196,
+       90,
+       161
+      ]
+     ],
+     "mat": "price"
+    },
+    {
+     "id": "i15",
+     "type": "flat",
+     "x0": 214,
+     "z0": 344,
+     "x1": 302,
+     "z1": 404,
+     "mat": "rug_love",
+     "y": 0.4
+    },
+    {
+     "id": "i16",
+     "type": "lamp",
+     "x": 208,
+     "z": 176,
+     "shade": "lov_lamp_f",
+     "block": [
+      [
+       6,
+       5
+      ]
+     ]
+    },
+    {
+     "id": "i17",
+     "type": "lamp",
+     "x": 304,
+     "z": 176,
+     "shade": "lov_lamp_f",
+     "block": [
+      [
+       9,
+       5
+      ]
+     ]
+    },
+    {
+     "id": "i18",
+     "type": "flat",
+     "x0": 214,
+     "z0": 300,
+     "x1": 220,
+     "z1": 304,
+     "mat": "petal",
+     "y": 0.5
+    },
+    {
+     "id": "i19",
+     "type": "flat",
+     "x0": 300,
+     "z0": 302,
+     "x1": 306,
+     "z1": 306,
+     "mat": "petal",
+     "y": 0.5
+    },
+    {
+     "id": "i20",
+     "type": "flat",
+     "x0": 236,
+     "z0": 236,
+     "x1": 242,
+     "z1": 240,
+     "mat": "petal",
+     "y": 0.5
+    },
+    {
+     "id": "i21",
+     "type": "flat",
+     "x0": 300,
+     "z0": 230,
+     "x1": 306,
+     "z1": 234,
+     "mat": "petal",
+     "y": 0.5
+    },
+    {
+     "id": "i22",
+     "type": "flat",
+     "x0": 322,
+     "z0": 290,
+     "x1": 328,
+     "z1": 294,
+     "mat": "petal",
+     "y": 0.5
+    },
+    {
+     "id": "i23",
+     "type": "flat",
+     "x0": 190,
+     "z0": 340,
+     "x1": 196,
+     "z1": 344,
+     "mat": "petal",
+     "y": 0.5
+    },
+    {
+     "id": "i24",
+     "type": "game",
+     "path": "/Item/Model/rmk_lov_bedW.bcres",
+     "x": 64,
+     "z": 32,
+     "rot": 0,
+     "tex_cap": 128,
+     "block": [
+      [
+       1,
+       0
+      ],
+      [
+       2,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       1
+      ]
+     ]
+    },
+    {
+     "id": "i25",
+     "type": "game",
+     "path": "/Item/Model/rmk_lov_tableS.bcres",
+     "x": 16,
+     "z": 16,
+     "rot": 0,
+     "tex_cap": 128,
+     "block": [
+      [
+       0,
+       0
+      ]
+     ]
+    },
+    {
+     "id": "i26",
+     "type": "lamp",
+     "x": 16,
+     "z": 16,
+     "shade": "lov_lamp_f"
+    },
+    {
+     "id": "i27",
+     "type": "game",
+     "path": "/Item/Model/rmk_lov_dresser.bcres",
+     "x": 112,
+     "z": 16,
+     "rot": 0,
+     "tex_cap": 128,
+     "block": [
+      [
+       3,
+       0
+      ]
+     ]
+    },
+    {
+     "id": "i28",
+     "type": "game",
+     "path": "/Item/Model/rmk_lov_chairS.bcres",
+     "x": 16,
+     "z": 80,
+     "rot": 90,
+     "tex_cap": 128,
+     "block": [
+      [
+       0,
+       2
+      ]
+     ]
+    },
+    {
+     "id": "i29",
+     "type": "game",
+     "path": "/Item/Model/rmk_lov_chairS.bcres",
+     "x": 16,
+     "z": 112,
+     "rot": 90,
+     "tex_cap": 128,
+     "block": [
+      [
+       0,
+       3
+      ]
+     ]
+    },
+    {
+     "id": "i30",
+     "type": "bed",
+     "x": 256,
+     "z": 32,
+     "rot": 0,
+     "palette": "nuptial",
+     "block": [
+      [
+       7,
+       0
+      ],
+      [
+       8,
+       0
+      ],
+      [
+       7,
+       1
+      ],
+      [
+       8,
+       1
+      ]
+     ]
+    },
+    {
+     "id": "i31",
+     "type": "quad",
+     "pts": [
+      [
+       224,
+       64,
+       1
+      ],
+      [
+       288,
+       64,
+       1
+      ],
+      [
+       288,
+       80,
+       1
+      ],
+      [
+       224,
+       80,
+       1
+      ]
+     ],
+     "mat": "married"
+    },
+    {
+     "id": "i32",
+     "type": "stand",
+     "x": 208,
+     "z": 16,
+     "palette": "nuptial",
+     "block": [
+      [
+       6,
+       0
+      ]
+     ]
+    },
+    {
+     "id": "i33",
+     "type": "cyl",
+     "cx": 208,
+     "cz": 16,
+     "r": 5,
+     "y0": 24,
+     "y1": 32,
+     "side": "gold",
+     "top": "glass",
+     "n": 8
+    },
+    {
+     "id": "i34",
+     "type": "cyl",
+     "cx": 208,
+     "cz": 16,
+     "r": 1.5,
+     "y0": 32,
+     "y1": 40,
+     "side": "bottle",
+     "top": "gold",
+     "n": 6
+    },
+    {
+     "id": "i35",
+     "type": "stand",
+     "x": 304,
+     "z": 16,
+     "palette": "nuptial",
+     "block": [
+      [
+       9,
+       0
+      ]
+     ]
+    },
+    {
+     "id": "i36",
+     "type": "cyl",
+     "cx": 304,
+     "cz": 16,
+     "r": 5,
+     "y0": 24,
+     "y1": 32,
+     "side": "gold",
+     "top": "glass",
+     "n": 8
+    },
+    {
+     "id": "i37",
+     "type": "cyl",
+     "cx": 304,
+     "cz": 16,
+     "r": 1.5,
+     "y0": 32,
+     "y1": 40,
+     "side": "bottle",
+     "top": "gold",
+     "n": 6
+    },
+    {
+     "id": "i38",
+     "type": "stand",
+     "x": 208,
+     "z": 112,
+     "palette": "nuptial",
+     "block": [
+      [
+       6,
+       3
+      ]
+     ]
+    },
+    {
+     "id": "i39",
+     "type": "cyl",
+     "cx": 208,
+     "cz": 112,
+     "r": 9,
+     "y0": 24,
+     "y1": 30,
+     "side": "bed:nuptial:sheet",
+     "top": "bed:nuptial:pillow",
+     "n": 10
+    },
+    {
+     "id": "i40",
+     "type": "stand",
+     "x": 304,
+     "z": 112,
+     "palette": "nuptial",
+     "block": [
+      [
+       9,
+       3
+      ]
+     ]
+    },
+    {
+     "id": "i41",
+     "type": "cyl",
+     "cx": 304,
+     "cz": 112,
+     "r": 9,
+     "y0": 24,
+     "y1": 30,
+     "side": "bed:nuptial:sheet",
+     "top": "bed:nuptial:pillow",
+     "n": 10
+    },
+    {
+     "id": "i42",
+     "type": "flat",
+     "x0": 214,
+     "z0": 80,
+     "x1": 220,
+     "z1": 84,
+     "mat": "petal",
+     "y": 0.5
+    },
+    {
+     "id": "i43",
+     "type": "flat",
+     "x0": 236,
+     "z0": 96,
+     "x1": 242,
+     "z1": 100,
+     "mat": "petal",
+     "y": 0.5
+    },
+    {
+     "id": "i44",
+     "type": "flat",
+     "x0": 274,
+     "z0": 90,
+     "x1": 280,
+     "z1": 94,
+     "mat": "petal",
+     "y": 0.5
+    },
+    {
+     "id": "i45",
+     "type": "flat",
+     "x0": 300,
+     "z0": 70,
+     "x1": 306,
+     "z1": 74,
+     "mat": "petal",
+     "y": 0.5
+    },
+    {
+     "id": "i46",
+     "type": "flat",
+     "x0": 250,
+     "z0": 110,
+     "x1": 256,
+     "z1": 114,
+     "mat": "petal",
+     "y": 0.5
+    },
+    {
+     "id": "i47",
+     "type": "bed",
+     "x": 448,
+     "z": 32,
+     "rot": 0,
+     "palette": "donjon",
+     "block": [
+      [
+       13,
+       0
+      ],
+      [
+       14,
+       0
+      ],
+      [
+       13,
+       1
+      ],
+      [
+       14,
+       1
+      ]
+     ]
+    },
+    {
+     "id": "i48",
+     "type": "quad",
+     "pts": [
+      [
+       420,
+       50,
+       1
+      ],
+      [
+       452,
+       50,
+       1
+      ],
+      [
+       452,
+       58,
+       1
+      ],
+      [
+       420,
+       58,
+       1
+      ]
+     ],
+     "mat": "cuffs"
+    },
+    {
+     "id": "i49",
+     "type": "quad",
+     "pts": [
+      [
+       358,
+       46,
+       1
+      ],
+      [
+       422,
+       46,
+       1
+      ],
+      [
+       422,
+       78,
+       1
+      ],
+      [
+       358,
+       78,
+       1
+      ]
+     ],
+     "mat": "whips"
+    },
+    {
+     "id": "i50",
+     "type": "wallquad",
+     "a": [
+      354,
+      30
+     ],
+     "b": [
+      382,
+      30
+     ],
+     "h": 44,
+     "mat": "cage",
+     "both": true
+    },
+    {
+     "id": "i51",
+     "type": "wallquad",
+     "a": [
+      382,
+      30
+     ],
+     "b": [
+      382,
+      2
+     ],
+     "h": 44,
+     "mat": "cage",
+     "both": true
+    },
+    {
+     "id": "i52",
+     "type": "wallquad",
+     "a": [
+      354,
+      2
+     ],
+     "b": [
+      354,
+      30
+     ],
+     "h": 44,
+     "mat": "cage",
+     "both": true
+    },
+    {
+     "id": "i53",
+     "type": "flat",
+     "x0": 354,
+     "z0": 2,
+     "x1": 382,
+     "z1": 30,
+     "mat": "black",
+     "y": 44,
+     "block": [
+      [
+       11,
+       0
+      ]
+     ]
+    },
+    {
+     "id": "i54",
+     "type": "box",
+     "x0": 482,
+     "x1": 486,
+     "y0": 0,
+     "y1": 64,
+     "z0": 66,
+     "z1": 70,
+     "mat": "black",
+     "faces": {},
+     "block": [
+      [
+       15,
+       2
+      ],
+      [
+       15,
+       3
+      ]
+     ]
+    },
+    {
+     "id": "i55",
+     "type": "box",
+     "x0": 482,
+     "x1": 486,
+     "y0": 0,
+     "y1": 64,
+     "z0": 122,
+     "z1": 126,
+     "mat": "black",
+     "faces": {}
+    },
+    {
+     "id": "i56",
+     "type": "box",
+     "x0": 482,
+     "x1": 486,
+     "y0": 60,
+     "y1": 64,
+     "z0": 66,
+     "z1": 126,
+     "mat": "black",
+     "faces": {}
+    },
+    {
+     "id": "i57",
+     "type": "box",
+     "x0": 483,
+     "x1": 485,
+     "y0": 22,
+     "y1": 60,
+     "z0": 84,
+     "z1": 86,
+     "mat": "black",
+     "faces": {}
+    },
+    {
+     "id": "i58",
+     "type": "box",
+     "x0": 483,
+     "x1": 485,
+     "y0": 22,
+     "y1": 60,
+     "z0": 108,
+     "z1": 110,
+     "mat": "black",
+     "faces": {}
+    },
+    {
+     "id": "i59",
+     "type": "box",
+     "x0": 474,
+     "x1": 494,
+     "y0": 18,
+     "y1": 22,
+     "z0": 82,
+     "z1": 112,
+     "mat": "leather",
+     "faces": {}
+    },
+    {
+     "id": "i60",
+     "type": "cyl",
+     "cx": 400,
+     "cz": 112,
+     "r": 3,
+     "y0": 0,
+     "y1": 14,
+     "side": "candle",
+     "top": "candle",
+     "n": 6
+    },
+    {
+     "id": "i61",
+     "type": "cyl",
+     "cx": 496,
+     "cz": 16,
+     "r": 3,
+     "y0": 0,
+     "y1": 14,
+     "side": "candle",
+     "top": "candle",
+     "n": 6
+    },
+    {
+     "id": "i62",
+     "type": "cyl",
+     "cx": 48,
+     "cz": 208,
+     "r": 2.2,
+     "y0": 0,
+     "y1": 112,
+     "side": "chrome",
+     "top": "chrome",
+     "n": 8,
+     "block": [
+      [
+       1,
+       6
+      ]
+     ]
+    },
+    {
+     "id": "i63",
+     "type": "cyl",
+     "cx": 48,
+     "cz": 208,
+     "r": 10,
+     "y0": 0,
+     "y1": 3,
+     "side": "chrome",
+     "top": "chrome",
+     "n": 12
+    },
+    {
+     "id": "i64",
+     "type": "cyl",
+     "cx": 48,
+     "cz": 230,
+     "r": 9,
+     "y0": 84,
+     "y1": 102,
+     "side": "mirrorball",
+     "top": "mirrorball",
+     "n": 10
+    },
+    {
+     "id": "i65",
+     "type": "box",
+     "x0": 4,
+     "x1": 28,
+     "y0": 0,
+     "y1": 40,
+     "z0": 162,
+     "z1": 186,
+     "mat": "speaker",
+     "faces": {
+      "top": "black"
+     },
+     "block": [
+      [
+       0,
+       5
+      ]
+     ]
+    },
+    {
+     "id": "i66",
+     "type": "box",
+     "x0": 68,
+     "x1": 92,
+     "y0": 0,
+     "y1": 40,
+     "z0": 162,
+     "z1": 186,
+     "mat": "speaker",
+     "faces": {
+      "top": "black"
+     },
+     "block": [
+      [
+       2,
+       5
+      ]
+     ]
+    },
+    {
+     "id": "i67",
+     "type": "bed",
+     "x": 32,
+     "z": 256,
+     "rot": 90,
+     "palette": "disco",
+     "block": [
+      [
+       0,
+       7
+      ],
+      [
+       1,
+       7
+      ],
+      [
+       0,
+       8
+      ],
+      [
+       1,
+       8
+      ]
+     ]
+    },
+    {
+     "id": "i68",
+     "type": "quad",
+     "pts": [
+      [
+       4,
+       60,
+       168
+      ],
+      [
+       4,
+       60,
+       232
+      ],
+      [
+       4,
+       92,
+       232
+      ],
+      [
+       4,
+       92,
+       168
+      ]
+     ],
+     "mat": "neon_love"
+    },
+    {
+     "id": "i69",
+     "type": "extrude",
+     "shape": "heart",
+     "cx": 64,
+     "cz": 352,
+     "size": 60,
+     "y0": 0,
+     "y1": 14,
+     "top_y": 12,
+     "side": "tub_side",
+     "top": "water",
+     "block": [
+      [
+       0,
+       10
+      ],
+      [
+       1,
+       10
+      ],
+      [
+       0,
+       11
+      ],
+      [
+       1,
+       11
+      ]
+     ]
+    },
+    {
+     "id": "i70",
+     "type": "quad",
+     "pts": [
+      [
+       60,
+       13,
+       350
+      ],
+      [
+       70,
+       13,
+       350
+      ],
+      [
+       70,
+       23,
+       350
+      ],
+      [
+       60,
+       23,
+       350
+      ]
+     ],
+     "mat": "duck"
+    },
+    {
+     "id": "i71",
+     "type": "box",
+     "x0": 68,
+     "x1": 92,
+     "y0": 0,
+     "y1": 26,
+     "z0": 324,
+     "z1": 348,
+     "mat": "towels",
+     "faces": {},
+     "block": [
+      [
+       2,
+       10
+      ]
+     ]
+    },
+    {
+     "id": "i72",
+     "type": "game",
+     "path": "/Item/Model/rmk_lov_tableM.bcres",
+     "x": 32,
+     "z": 432,
+     "rot": 0,
+     "tex_cap": 128,
+     "block": [
+      [
+       0,
+       13
+      ],
+      [
+       1,
+       13
+      ]
+     ]
+    },
+    {
+     "id": "i73",
+     "type": "flat",
+     "x0": 4,
+     "z0": 420,
+     "x1": 60,
+     "z1": 444,
+     "mat": "towels",
+     "y": 17
+    },
+    {
+     "id": "i74",
+     "type": "bed",
+     "x": 480,
+     "z": 192,
+     "rot": 270,
+     "palette": "panther",
+     "block": [
+      [
+       14,
+       5
+      ],
+      [
+       15,
+       5
+      ],
+      [
+       14,
+       6
+      ],
+      [
+       15,
+       6
+      ]
+     ]
+    },
+    {
+     "id": "i75",
+     "type": "stand",
+     "x": 432,
+     "z": 176,
+     "palette": "panther",
+     "block": [
+      [
+       13,
+       5
+      ]
+     ]
+    },
+    {
+     "id": "i76",
+     "type": "lamp",
+     "x": 432,
+     "z": 176,
+     "shade": "bed:panther:sheet"
+    },
+    {
+     "id": "i77",
+     "type": "flat",
+     "x0": 420,
+     "z0": 228,
+     "x1": 504,
+     "z1": 280,
+     "mat": "fur",
+     "y": 0.4
+    },
+    {
+     "id": "i78",
+     "type": "stand",
+     "x": 496,
+     "z": 272,
+     "palette": "panther",
+     "block": [
+      [
+       15,
+       8
+      ]
+     ]
+    },
+    {
+     "id": "i79",
+     "type": "bed",
+     "x": 480,
+     "z": 352,
+     "rot": 270,
+     "palette": "vibro",
+     "block": [
+      [
+       14,
+       10
+      ],
+      [
+       15,
+       10
+      ],
+      [
+       14,
+       11
+      ],
+      [
+       15,
+       11
+      ]
+     ]
+    },
+    {
+     "id": "i80",
+     "type": "box",
+     "x0": 436,
+     "x1": 452,
+     "y0": 0,
+     "y1": 22,
+     "z0": 384,
+     "z1": 396,
+     "mat": "coinbox",
+     "faces": {}
+    },
+    {
+     "id": "i81",
+     "type": "quad",
+     "pts": [
+      [
+       448,
+       70,
+       321
+      ],
+      [
+       512,
+       70,
+       321
+      ],
+      [
+       512,
+       86,
+       321
+      ],
+      [
+       448,
+       86,
+       321
+      ]
+     ],
+     "mat": "vibro_sign"
+    },
+    {
+     "id": "i82",
+     "type": "stand",
+     "x": 496,
+     "z": 432,
+     "palette": "vibro",
+     "block": [
+      [
+       15,
+       13
+      ]
+     ]
+    },
+    {
+     "id": "i83",
+     "type": "flat",
+     "x0": 430,
+     "z0": 420,
+     "x1": 438,
+     "z1": 428,
+     "mat": "condom",
+     "y": 0.5
+    },
+    {
+     "id": "i84",
+     "type": "flat",
+     "x0": 470,
+     "z0": 404,
+     "x1": 478,
+     "z1": 412,
+     "mat": "condom",
+     "y": 0.5
+    }
+   ]
+  }
+ ],
+ "events": [
+  {
+   "id": "welcome",
+   "type": "enter_talk",
+   "building": "baisodrome",
+   "npc": "Tanukichi",
+   "steps": [
+    {
+     "text": {
+      "fr": "{3.15:}Oh !{7.0:0a000000} {3.3:}Bienvenue, bienvenue\nau {0.3:0200}Baisodrome{0.3:ffff} !{0.4:}{3.1:}Le tout premier hôtel de charme\nde {5.5:}, oui, oui.{7.0:0a000000}\nSept suites à thème !{0.4:}{3.21:}La suite {0.3:0200}Lovely{0.3:ffff}, toute en\ndentelle et en petits cœurs,\npour les romantiques.{0.4:}{3.1:}La {0.3:0200}Nuptiale{0.3:ffff}, pour les jeunes\nmariés{7.0:08000000}.{7.0:08000000}.{7.0:08000000}. ou pour ceux qui\nfont semblant, hm ?{0.4:}{3.26:}Le {0.3:0200}Donjon{0.3:ffff}{7.0:08000000}.{7.0:08000000}.{7.0:08000000}.{7.0:0a000000} Fouets,\nmenottes, balançoire en cuir.\nJe ne pose pas de questions.{0.4:}{3.38:}Le {0.3:0200}Disco{0.3:ffff} et sa barre de\npole dance, le {0.3:0200}Spa{0.3:ffff} et son\njacuzzi en forme de cœur !{0.4:}{3.5:}La {0.3:0200}Panthère{0.3:ffff} pour les fauves.{7.0:0a000000}\nEt la {0.3:0200}Vibro{0.3:ffff}{7.0:08000000}.{7.0:08000000}.{7.0:08000000}. {3.23:}son lit\nvibre pour 100 clochettes.{0.4:}{3.11:}Les capotes sont au\ndistributeur, près du Donjon.{7.0:0a000000}\n{3.1:}La sécurité avant tout !{0.4:}{3.38:}Et surtout{7.0:08000000}.{7.0:08000000}.{7.0:08000000}. {0.3:0200}discrétion\nabsolue{0.3:ffff} ! Ce qui se passe\nici reste ici, oui, oui.{0.4:}{3.26:}Hem{7.0:08000000}.{7.0:08000000}.{7.0:08000000}.{7.0:0a000000} Les tarifs sont\naffichés. Je fais crédit,\nbien sûr. Avec intérêts.{0.4:}{3.1:}Choisis ta chambre.{7.0:0a000000}\nEt n'hésite pas à amener\nquelqu'un, hm ?",
+      "en": "{3.15:}Oh!{7.0:0a000000} {3.3:}Welcome, welcome\nto the {0.3:0200}Baisodrome{0.3:ffff}!{0.4:}{3.1:}{5.5:}'s very first love\nhotel, yes, yes.{7.0:0a000000}\nSeven themed suites!{0.4:}{3.21:}The {0.3:0200}Lovely{0.3:ffff} suite, all lace\nand little hearts, for the\nromantics.{0.4:}{3.1:}The {0.3:0200}Bridal{0.3:ffff} suite, for the\nnewlyweds{7.0:08000000}.{7.0:08000000}.{7.0:08000000}. or for those\nwho pretend, hm?{0.4:}{3.26:}The {0.3:0200}Dungeon{0.3:ffff}{7.0:08000000}.{7.0:08000000}.{7.0:08000000}.{7.0:0a000000} Whips,\nhandcuffs, a leather swing.\nI ask no questions.{0.4:}{3.38:}The {0.3:0200}Disco{0.3:ffff} with its pole,\nthe {0.3:0200}Spa{0.3:ffff} with its\nheart-shaped jacuzzi!{0.4:}{3.5:}The {0.3:0200}Panther{0.3:ffff} for wild ones.{7.0:0a000000}\nAnd the {0.3:0200}Vibro{0.3:ffff}{7.0:08000000}.{7.0:08000000}.{7.0:08000000}. {3.23:}its bed\nshakes for 100 Bells.{0.4:}{3.11:}Condoms are in the machine\nby the Dungeon.{7.0:0a000000}\n{3.1:}Safety first!{0.4:}{3.38:}And above all{7.0:08000000}.{7.0:08000000}.{7.0:08000000}. {0.3:0200}total\ndiscretion{0.3:ffff}! What happens\nhere stays here, yes.{0.4:}{3.26:}Ahem{7.0:08000000}.{7.0:08000000}.{7.0:08000000}.{7.0:0a000000} The rates are on\nthe board. I give credit,\nof course. With interest.{0.4:}{3.1:}Pick a room.{7.0:0a000000}\nAnd don't hesitate to bring\nsomeone, hm?"
+     }
+    }
+   ],
+   "goodbye": {
+    "en": "{3.1:}Thank you, and see you soon at\nthe Baisodrome, hm?",
+    "fr": "{3.1:}Merci, et à très bientôt au\nBaisodrome, hm ?"
+   }
+  }
+ ]
+}
