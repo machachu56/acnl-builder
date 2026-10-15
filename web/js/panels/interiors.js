@@ -22,11 +22,19 @@ export function render(root, app) {
   const snapshot = () => { const sc = scene(); if (!sc) return; if (hist.sid !== sc.id) { hist.stack = []; hist.at = -1; hist.sid = sc.id; } const j = JSON.stringify(sc); if (hist.stack[hist.at] === j) return; hist.stack = hist.stack.slice(0, hist.at + 1); hist.stack.push(j); if (hist.stack.length > 80) hist.stack.shift(); hist.at = hist.stack.length - 1; };
   const commitSoon = debounce(snapshot, 350);
   const changed = () => { saveChanged(); commitSoon(); };
-  const restore = (i) => { const sc = scene(); if (!sc || i < 0 || i >= hist.stack.length) return; commitSoon.now(); hist.at = i; const j = JSON.parse(hist.stack[i]); for (const k of Object.keys(sc)) delete sc[k]; Object.assign(sc, j); st.sel = null; saveChanged(); drawAll(); preview(); };
+  const restore = (i) => { const sc = scene(); if (!sc || i < 0 || i >= hist.stack.length) return; commitSoon.now(); hist.at = i; const j = JSON.parse(hist.stack[i]); for (const k of Object.keys(sc)) delete sc[k]; Object.assign(sc, j); setSel([]); saveChanged(); drawAll(); preview(); };
   const undo = () => { commitSoon.now(); restore(hist.at - 1); };
   const redo = () => { restore(hist.at + 1); };
-  const st = { sid: (preset && preset.interior) || (P.interiors[0] && P.interiors[0].id) || null, tool: 'select', sel: null, tab: 'items', placing: null, drag: null, hover: null, problems: [], used: 0, tris: 0, presets: null, flash: 0 };
+  const st = { multi: new Set(), anchor: null, sid: (preset && preset.interior) || (P.interiors[0] && P.interiors[0].id) || null, tool: 'select', sel: null, tab: 'items', placing: null, drag: null, hover: null, problems: [], used: 0, tris: 0, presets: null, flash: 0 };
   const scene = () => P.interiors.find((s) => s.id === st.sid);
+  // selection: st.multi holds the selected items' ids; st.sel stays the "main" selection the inspector shows
+  const setSel = (ids, room) => {
+    st.multi = new Set(ids);
+    st.sel = room ? { kind: 'room', id: room } : ids.length === 1 ? { kind: 'item', id: ids[0] } : ids.length ? { kind: 'items' } : null;
+    if (ids.length) st.anchor = ids[ids.length - 1];
+  };
+  const selItems = () => { const sc = scene(); return sc ? sc.items.filter((i) => st.multi.has(i.id)) : []; };
+  const toggleIn = (id) => { const ids = [...st.multi]; const k = ids.indexOf(id); if (k >= 0) ids.splice(k, 1); else ids.push(id); return ids; };
 
   const left = h('div', { class: 'pane', style: { display: 'flex', flexDirection: 'column' } });
   const mid = h('div', { class: 'pane pad', style: { display: 'flex', flexDirection: 'column', gap: '10px' } });
@@ -44,7 +52,7 @@ export function render(root, app) {
   function drawToolbar() {
     const tools = [['select', '↖ Select / move', 'V'], ['room', '▭ Draw room', 'U'], ['door', '⌷ Doorway', 'D']];
     mount(toolbar,
-      P.interiors.length ? (() => { const s = select(sceneNames(), st.sid, (v) => { st.sid = v; st.sel = null; st.placing = null; drawAll(); preview.now(); }); s.style.width = '170px'; return s; })() : null,
+      P.interiors.length ? (() => { const s = select(sceneNames(), st.sid, (v) => { st.sid = v; setSel([]); st.placing = null; drawAll(); preview.now(); }); s.style.width = '170px'; return s; })() : null,
       h('button', { class: 'small', onclick: addScene }, '+ New'),
       P.interiors.length ? h('button', { class: 'small ghost', onclick: renameScene }, 'Rename') : null,
       P.interiors.length ? h('button', { class: 'small ghost danger', onclick: delScene }, 'Delete') : null,
@@ -54,7 +62,7 @@ export function render(root, app) {
       st.placing ? h('span', { class: 'chip warn' }, 'placing: ' + (TYPE_LABEL[st.placing.type] || st.placing.type) + ' — click the plan, Esc to stop') : null);
   }
   function hintText() {
-    const t = st.placing ? 'Click on the plan to place it. Hold Shift to place several.' : { select: 'Click an item or room to select it; drag to move; arrows nudge, R rotates, Del deletes.', room: 'Drag on the empty grid to add a room (any tile not inside a room is a low partition wall).', door: 'Select a room first, then click floor tiles beside it to make doorways to the main room.' }[st.tool];
+    const t = st.placing ? 'Click on the plan to place it. Hold Shift to place several.' : { select: 'Click an item to select it; Ctrl/Shift-click adds more, or drag a box on empty floor. Drag to move the selection; arrows nudge, R rotates, Del deletes. A room is selected by clicking its floor and moved by its top-left tile.', room: 'Drag on the empty grid to add a room (any tile not inside a room is a low partition wall).', door: 'Select a room first, then click floor tiles beside it to make doorways to the main room.' }[st.tool];
     hint.textContent = t;
   }
   async function addScene() {
@@ -66,7 +74,7 @@ export function render(root, app) {
     const sc = scene(); const users = P.buildings.filter((b) => b.interior === sc.id);
     if (!await confirmBox('Delete "' + (sc.title || sc.id) + '"' + (users.length ? ' (used by ' + users.map((b) => b.name || b.id).join(', ') + ')' : '') + '?', 'Delete')) return;
     P.interiors.splice(P.interiors.indexOf(sc), 1); users.forEach((b) => { b.interior = null; });
-    st.sid = P.interiors[0] ? P.interiors[0].id : null; st.sel = null; changed(); drawAll(); preview.now();
+    st.sid = P.interiors[0] ? P.interiors[0].id : null; setSel([]); changed(); drawAll(); preview.now();
   }
 
   // ---- drawing
@@ -105,7 +113,22 @@ export function render(root, app) {
     const solid = new Set(); for (const it of sc.items) for (const b of it.block || []) solid.add(b[0] + ',' + b[1]);
     for (const k of solid) { const [x, y] = k.split(',').map(Number); g.beginPath(); for (let i = 0; i < S36; i += 8) { g.moveTo(x * S36 + i, y * S36); g.lineTo(x * S36, y * S36 + i); } g.stroke(); }
     // items
-    for (const it of sc.items) drawItem(g, it, st.sel && st.sel.kind === 'item' && st.sel.id === it.id, sc);
+    for (const it of sc.items) drawItem(g, it, st.multi.has(it.id), sc);
+    // selection: a clear frame around every selected item (dark outline + bright frame + corner handles), and one around the group
+    const chosen = sc.items.filter((it) => st.multi.has(it.id));
+    for (const it of chosen) {
+      const b = plan.bbox(it).map((v) => v * SCALE), pad = 9, minS = 34, cxm = (b[0] + b[2]) / 2, cym = (b[1] + b[3]) / 2, w = Math.max(minS, b[2] - b[0] + 2 * pad), hh = Math.max(minS, b[3] - b[1] + 2 * pad), x = cxm - w / 2, y = cym - hh / 2;
+      g.fillStyle = 'rgba(255,230,80,.22)'; g.fillRect(x, y, w, hh);
+      g.lineWidth = 5; g.strokeStyle = 'rgba(0,0,0,.75)'; g.strokeRect(x, y, w, hh);
+      g.lineWidth = 3; g.strokeStyle = '#ffe650'; g.strokeRect(x, y, w, hh);
+      for (const [cx, cy] of [[x, y], [x + w, y], [x, y + hh], [x + w, y + hh]]) { g.fillStyle = '#000'; g.fillRect(cx - 6, cy - 6, 12, 12); g.fillStyle = '#ffe650'; g.fillRect(cx - 4, cy - 4, 8, 8); }
+    }
+    if (chosen.length > 1) {
+      const bs = chosen.map((it) => plan.bbox(it).map((v) => v * SCALE)), x0 = Math.min(...bs.map((b) => b[0])) - 9, y0 = Math.min(...bs.map((b) => b[1])) - 9, x1 = Math.max(...bs.map((b) => b[2])) + 9, y1 = Math.max(...bs.map((b) => b[3])) + 9;
+      g.lineWidth = 1.5; g.strokeStyle = '#6bbf7a'; g.setLineDash([6, 4]); g.strokeRect(x0, y0, x1 - x0, y1 - y0); g.setLineDash([]);
+      label(g, chosen.length + ' selected', x0 + 2, y0 - 3, true);
+    }
+    if (st.drag && st.drag.kind === 'marquee') { const m = st.drag, x0 = Math.min(m.start[0], m.cur[0]) * SCALE, y0 = Math.min(m.start[1], m.cur[1]) * SCALE, x1 = Math.max(m.start[0], m.cur[0]) * SCALE, y1 = Math.max(m.start[1], m.cur[1]) * SCALE; g.fillStyle = 'rgba(255,230,80,.12)'; g.fillRect(x0, y0, x1 - x0, y1 - y0); g.strokeStyle = '#ffe650'; g.setLineDash([4, 3]); g.strokeRect(x0 + .5, y0 + .5, x1 - x0, y1 - y0); g.setLineDash([]); }
     // tool previews
     if (st.drag && st.drag.kind === 'room') { const r = st.drag.rect; g.strokeStyle = '#ffe650'; g.setLineDash([5, 4]); g.strokeRect(r[0] * S36, r[1] * S36, (r[2] - r[0] + 1) * S36, (r[3] - r[1] + 1) * S36); g.setLineDash([]); }
     if (st.placing && st.hover) { const p = plan.make(st.placing.type, st.hover[0], st.hover[1], st.placing); if (p) { p.id = '_ghost'; g.globalAlpha = 0.55; drawItem(g, p, true, sc); g.globalAlpha = 1; } }
@@ -154,13 +177,21 @@ export function render(root, app) {
     if (st.placing) {
       const it = plan.make(st.placing.type, w[0], w[1], st.placing); it.id = plan.newId(sc.items, st.placing.type[0]);
       it.block = plan.VISUAL.has(it.type) || st.placing.noblock ? undefined : plan.blocksFor(it); if (!it.block) delete it.block;
-      sc.items.push(it); st.sel = { kind: 'item', id: it.id }; if (!e.shiftKey) { st.placing = null; drawToolbar(); hintText(); }
+      sc.items.push(it); setSel([it.id]); if (!e.shiftKey) { st.placing = null; drawToolbar(); hintText(); }
       changed(); drawAll(); preview(); return;
     }
     if (st.tool === 'select') {
-      const it = itemAt(sc, w);
-      if (it) { st.sel = { kind: 'item', id: it.id }; st.drag = { kind: 'move', it, start: w, total: [0, 0], snap: !e.altKey }; }
-      else { const r = roomAt(sc, t); st.sel = r ? { kind: 'room', id: r.id } : null; if (r) st.drag = { kind: 'moveRoom', r, start: t, orig: r.rect.slice(), od: (r.doors || []).map((d) => d.slice()) }; }
+      const it = itemAt(sc, w), add = e.ctrlKey || e.metaKey || e.shiftKey;
+      if (it) {
+        if (add) { const was = st.multi.has(it.id); setSel(toggleIn(it.id)); if (was) { drawInspector(); drawLists(); drawPlan(); return; } }   // Ctrl/Shift-click toggles
+        else if (!st.multi.has(it.id)) setSel([it.id]);
+        st.drag = { kind: 'move', items: selItems(), start: w, total: [0, 0], snap: !e.altKey, any: false };
+      } else {
+        const r = roomAt(sc, t);
+        const grab = r && !add && t[0] === r.rect[0] && t[1] === r.rect[1];        // the room's top-left tile (its name tag) moves the room
+        if (grab) { setSel([], r.id); st.drag = { kind: 'moveRoom', r, start: t, orig: r.rect.slice(), od: (r.doors || []).map((d) => d.slice()) }; }
+        else st.drag = { kind: 'marquee', start: w, cur: w, add, base: add ? new Set(st.multi) : new Set(), room: r };
+      }
       drawInspector(); drawLists(); drawPlan();
     } else if (st.tool === 'room') {
       st.drag = { kind: 'room', start: t, rect: [t[0], t[1], t[0], t[1]] }; drawPlan();
@@ -177,11 +208,20 @@ export function render(root, app) {
   cv.addEventListener('pointermove', (e) => {
     const sc = scene(); if (!sc) return; const w = world(e), t = tileOf(w); st.hover = w;
     const d = st.drag;
-    if (d && d.kind === 'move') {
+    if (d && d.kind === 'marquee') {
+      d.cur = w;
+      const x0 = Math.min(d.start[0], w[0]), x1 = Math.max(d.start[0], w[0]), z0 = Math.min(d.start[1], w[1]), z1 = Math.max(d.start[1], w[1]);
+      if (x1 - x0 > 4 || z1 - z0 > 4) {
+        const ids = new Set(d.base);
+        for (const it of sc.items) { const b = plan.bbox(it); if (!(b[2] < x0 || b[0] > x1 || b[3] < z0 || b[1] > z1)) ids.add(it.id); }
+        setSel([...ids]); d.dragged = true; drawLists();
+      }
+      drawPlan();
+    } else if (d && d.kind === 'move') {
       const dx = w[0] - d.start[0], dz = w[1] - d.start[1];
       const sn = d.snap ? 8 : 1, ax = Math.round(dx / sn) * sn, az = Math.round(dz / sn) * sn;
       const mx = ax - d.total[0], mz = az - d.total[1];
-      if (mx || mz) { plan.move(d.it, mx, mz); d.total = [ax, az]; drawPlan(); drawInspector(true); }
+      if (mx || mz) { for (const it of d.items) plan.move(it, mx, mz); d.total = [ax, az]; d.any = true; drawPlan(); drawInspector(true); }
     } else if (d && d.kind === 'room') { d.rect = [Math.min(d.start[0], t[0]), Math.min(d.start[1], t[1]), Math.max(d.start[0], t[0]), Math.max(d.start[1], t[1])]; drawPlan(); }
     else if (d && d.kind === 'moveRoom') {
       const dx = t[0] - d.start[0], dy = t[1] - d.start[1], o = d.orig;
@@ -200,9 +240,12 @@ export function render(root, app) {
         const rid = uid('room', sc.rooms), tag = rid.replace('room', '');
         const fm = 'floor_' + rid, wm = 'wall_' + rid;
         sc.materials[fm] = { type: 'floor', preset: 'planks' }; sc.materials[wm] = { type: 'wall', preset: 'plain' };
-        sc.rooms.push({ id: rid, name: 'Room ' + tag, rect: [x0, y0, x1, y1], floor: fm, wall: wm, doors: [] }); st.sel = { kind: 'room', id: rid }; st.tool = 'select'; changed();
+        sc.rooms.push({ id: rid, name: 'Room ' + tag, rect: [x0, y0, x1, y1], floor: fm, wall: wm, doors: [] }); setSel([], rid); st.tool = 'select'; changed();
       }
-    } else if (d.kind === 'move' || d.kind === 'moveRoom') changed();
+    } else if (d.kind === 'marquee') {
+      if (!d.dragged && !d.add) setSel([], d.room ? d.room.id : null);                // a plain click on empty floor: the room, or nothing
+      drawAll(); return;
+    } else if (d.kind === 'move' || d.kind === 'moveRoom') { if (d.kind === 'moveRoom' || d.any) changed(); else { drawAll(); return; } }
     drawAll(); preview();
   });
   cv.addEventListener('pointerleave', () => { st.hover = null; if (st.placing) drawPlan(); });
@@ -211,23 +254,39 @@ export function render(root, app) {
     const sc = scene(); if (!sc) return; const k = e.key;
     if (e.ctrlKey && (k === 'z' || k === 'Z') && !e.shiftKey) { e.preventDefault(); undo(); return; }
     if (e.ctrlKey && (k === 'y' || k === 'Y' || ((k === 'z' || k === 'Z') && e.shiftKey))) { e.preventDefault(); redo(); return; }
-    if (k === 'Escape') { st.placing = null; st.sel = null; drawAll(); return; }
-    if (k === 'v') { st.tool = 'select'; drawToolbar(); hintText(); } else if (k === 'u') { st.tool = 'room'; drawToolbar(); hintText(); } else if (k === 'd') { st.tool = 'door'; drawToolbar(); hintText(); }
-    const it = st.sel && st.sel.kind === 'item' ? sc.items.find((i) => i.id === st.sel.id) : null;
-    if (!it) { if ((k === 'Delete' || k === 'Backspace') && st.sel && st.sel.kind === 'room') { delRoom(); } return; }
+    if (k === 'Escape') { st.placing = null; setSel([]); drawAll(); return; }
+    if ((e.ctrlKey || e.metaKey) && (k === 'a' || k === 'A')) { e.preventDefault(); setSel(sc.items.map((i) => i.id)); drawAll(); return; }
+    const its = selItems();
+    if ((e.ctrlKey || e.metaKey) && (k === 'd' || k === 'D')) { e.preventDefault(); if (its.length) duplicate(its); return; }
+    if (!e.ctrlKey && !e.metaKey) { if (k === 'v') { st.tool = 'select'; drawToolbar(); hintText(); } else if (k === 'u') { st.tool = 'room'; drawToolbar(); hintText(); } else if (k === 'd') { st.tool = 'door'; drawToolbar(); hintText(); } }
+    if (!its.length) { if ((k === 'Delete' || k === 'Backspace') && st.sel && st.sel.kind === 'room') { delRoom(); } return; }
     const step = e.shiftKey ? T : 8;
-    if (k === 'Delete' || k === 'Backspace') { sc.items.splice(sc.items.indexOf(it), 1); st.sel = null; }
-    else if (k === 'ArrowLeft') plan.move(it, -step, 0); else if (k === 'ArrowRight') plan.move(it, step, 0); else if (k === 'ArrowUp') plan.move(it, 0, -step); else if (k === 'ArrowDown') plan.move(it, 0, step);
-    else if (k === 'r') { const c = plan.rotate(it); if (c) { const c2 = plan.center(it); plan.move(it, c[0] - c2[0], c[1] - c2[1]); } }
-    else if (k === 'd' && e.ctrlKey) { e.preventDefault(); duplicate(it); return; } else return;
+    if (k === 'Delete' || k === 'Backspace') { sc.items = sc.items.filter((i) => !st.multi.has(i.id)); setSel([]); }
+    else if (k === 'ArrowLeft') its.forEach((it) => plan.move(it, -step, 0)); else if (k === 'ArrowRight') its.forEach((it) => plan.move(it, step, 0)); else if (k === 'ArrowUp') its.forEach((it) => plan.move(it, 0, -step)); else if (k === 'ArrowDown') its.forEach((it) => plan.move(it, 0, step));
+    else if (k === 'r') its.forEach((it) => { const c = plan.rotate(it); if (c) { const c2 = plan.center(it); plan.move(it, c[0] - c2[0], c[1] - c2[1]); } });
+    else return;
     e.preventDefault(); changed(); drawAll(); preview();
   };
   window.addEventListener('keydown', onKey);
-  function duplicate(it) { const sc = scene(); const c = JSON.parse(JSON.stringify(it)); c.id = plan.newId(sc.items, it.type[0]); plan.move(c, 16, 16); sc.items.push(c); st.sel = { kind: 'item', id: c.id }; changed(); drawAll(); preview(); }
+  function duplicate(list) {
+    const sc = scene(), items = Array.isArray(list) ? list : [list], ids = [];
+    for (const it of items) { const c = JSON.parse(JSON.stringify(it)); c.id = plan.newId(sc.items, it.type[0]); plan.move(c, 16, 16); sc.items.push(c); ids.push(c.id); }
+    setSel(ids); changed(); drawAll(); preview();
+  }
+  function align(mode) {
+    const its = selItems(); if (its.length < 2) return;
+    const bs = its.map((it) => plan.bbox(it));
+    const L = Math.min(...bs.map((b) => b[0])), R = Math.max(...bs.map((b) => b[2])), Tp = Math.min(...bs.map((b) => b[1])), B = Math.max(...bs.map((b) => b[3]));
+    its.forEach((it, i) => { const b = bs[i]; let dx = 0, dz = 0;
+      if (mode === 'left') dx = L - b[0]; else if (mode === 'right') dx = R - b[2]; else if (mode === 'hcenter') dx = (L + R) / 2 - (b[0] + b[2]) / 2;
+      else if (mode === 'top') dz = Tp - b[1]; else if (mode === 'bottom') dz = B - b[3]; else if (mode === 'vcenter') dz = (Tp + B) / 2 - (b[1] + b[3]) / 2;
+      if (dx || dz) plan.move(it, Math.round(dx), Math.round(dz)); });
+    changed(); drawAll(); preview();
+  }
   function delRoom() {
     const sc = scene(), r = sc.rooms.find((x) => x.id === st.sel.id); if (!r) return;
     if (r.id === sc.main) { toast('The main room cannot be deleted', 'error'); return; }
-    sc.rooms.splice(sc.rooms.indexOf(r), 1); st.sel = null; changed(); drawAll(); preview();
+    sc.rooms.splice(sc.rooms.indexOf(r), 1); setSel([]); changed(); drawAll(); preview();
   }
 
   // ================================================================ left: lists
@@ -240,13 +299,22 @@ export function render(root, app) {
     const sc = scene(), body = left.querySelector('#leftbody'); if (!body) return;
     if (!sc) { mount(body, h('div', { class: 'empty' }, 'No interior yet.')); return; }
     if (st.tab === 'items') {
-      mount(body, h('div', { class: 'list' }, sc.items.length ? sc.items.map((it, i) => h('div', { class: 'item' + (st.sel && st.sel.kind === 'item' && st.sel.id === it.id ? ' on' : ''), onclick: () => { st.sel = { kind: 'item', id: it.id }; drawInspector(); drawLists(); drawPlan(); } },
+      mount(body, h('div', { class: 'list' }, sc.items.length ? sc.items.map((it, i) => h('div', { class: 'item' + (st.multi.has(it.id) ? ' on' : ''), onclick: (e) => { listClick(e, sc, it); } },
         h('span', {}, TYPE_LABEL[it.type] || it.type), h('span', { class: 'dim', style: { fontSize: '12px' } }, it.type === 'game' ? it.path.split('/').pop().replace('.bcres', '') : it.id), it.block && it.block.length ? h('span', { class: 'chip sub' }, 'solid') : null)) : h('div', { class: 'empty' }, 'Nothing placed. Use the Add tab.')));
     } else if (st.tab === 'rooms') {
-      mount(body, h('div', { class: 'list' }, sc.rooms.map((r) => h('div', { class: 'item' + (st.sel && st.sel.kind === 'room' && st.sel.id === r.id ? ' on' : ''), onclick: () => { st.sel = { kind: 'room', id: r.id }; drawInspector(); drawLists(); drawPlan(); } }, h('span', {}, (r.name || r.id) + (r.id === sc.main ? ' ★' : '')), h('span', { class: 'sub dim' }, (r.rect[2] - r.rect[0] + 1) + '×' + (r.rect[3] - r.rect[1] + 1)))),
+      mount(body, h('div', { class: 'list' }, sc.rooms.map((r) => h('div', { class: 'item' + (st.sel && st.sel.kind === 'room' && st.sel.id === r.id ? ' on' : ''), onclick: () => { setSel([], r.id); drawInspector(); drawLists(); drawPlan(); } }, h('span', {}, (r.name || r.id) + (r.id === sc.main ? ' ★' : '')), h('span', { class: 'sub dim' }, (r.rect[2] - r.rect[0] + 1) + '×' + (r.rect[3] - r.rect[1] + 1)))),
         h('div', { class: 'dim', style: { padding: '10px 12px', fontSize: '12px' } }, 'Use the “Draw room” tool to add rooms. ★ is the main room: the entrance, and where doorways lead.')));
     } else if (st.tab === 'mats') drawMaterials(body, sc);
     else drawAdd(body, sc);
+  }
+
+  // list selection: click, Ctrl/Cmd-click toggles, Shift-click selects the range from the last clicked item
+  function listClick(e, sc, it) {
+    if (e.shiftKey && st.anchor) {
+      const a = sc.items.findIndex((i) => i.id === st.anchor), b = sc.items.findIndex((i) => i.id === it.id);
+      if (a >= 0 && b >= 0) { const [lo, hi] = a < b ? [a, b] : [b, a]; const ids = new Set(e.ctrlKey || e.metaKey ? st.multi : []); for (let k = lo; k <= hi; k++) ids.add(sc.items[k].id); const keep = st.anchor; setSel([...ids]); st.anchor = keep; }
+    } else if (e.ctrlKey || e.metaKey) setSel(toggleIn(it.id)); else setSel([it.id]);
+    drawInspector(); drawLists(); drawPlan();
   }
 
   // ---- materials
@@ -349,6 +417,7 @@ export function render(root, app) {
   function drawInspector(light) {
     const sc = scene();
     if (!sc || !st.sel) { mount(insp, h('div', { class: 'dim' }, sc ? 'Select a room or an item on the plan.' : '')); return; }
+    if (st.sel.kind === 'items') return drawMultiInspector(sc);
     if (st.sel.kind === 'room') return drawRoomInspector(sc, light);
     const it = sc.items.find((i) => i.id === st.sel.id); if (!it) { mount(insp); return; }
     const n = (k, label, step = 1) => field(label, numInput(Number(it[k]).toString(), (v) => { it[k] = v; changed(); preview(); drawPlan(); }, { step }));
@@ -369,10 +438,20 @@ export function render(root, app) {
     const blockTxt = h('input', { type: 'text', value: (it.block || []).map((b) => b.join(',')).join('  '), placeholder: 'e.g. 3,4  4,4' });
     blockTxt.addEventListener('change', () => { it.block = blockTxt.value.split(/\s+/).filter(Boolean).map((s) => s.split(',').map(Number)).filter((b) => b.length === 2 && b.every((v) => !isNaN(v))); if (!it.block.length) delete it.block; changed(); preview(); drawPlan(); });
     mount(insp, h('div', { class: 'row' }, h('b', {}, TYPE_LABEL[it.type] || it.type), h('span', { class: 'dim' }, it.id), h('div', { class: 'grow' }),
-      h('button', { class: 'small', onclick: () => duplicate(it) }, 'Duplicate'), h('button', { class: 'small danger', onclick: () => { sc.items.splice(sc.items.indexOf(it), 1); st.sel = null; changed(); drawAll(); preview(); } }, 'Delete')),
+      h('button', { class: 'small', onclick: () => duplicate(it) }, 'Duplicate'), h('button', { class: 'small danger', onclick: () => { sc.items.splice(sc.items.indexOf(it), 1); setSel([]); changed(); drawAll(); preview(); } }, 'Delete')),
       rows,
       plan.VISUAL.has(it.type) ? null : h('div', { class: 'card' }, h('h3', {}, 'Collision'), field('Blocked floor tiles (x,y …)', blockTxt, 'Tiles the player cannot walk onto; doorways must stay free.'),
         h('button', { class: 'small', onclick: () => { it.block = plan.blocksFor(it); if (!it.block.length) delete it.block; changed(); preview(); drawAll(); } }, 'Fit to the footprint')));
+  }
+  function drawMultiInspector(sc) {
+    const its = selItems(), counts = {}; its.forEach((i) => { counts[TYPE_LABEL[i.type] || i.type] = (counts[TYPE_LABEL[i.type] || i.type] || 0) + 1; });
+    const al = (m, label, title) => h('button', { class: 'small', title, onclick: () => align(m) }, label);
+    mount(insp, h('div', { class: 'row' }, h('b', {}, its.length + ' items selected'), h('div', { class: 'grow' }),
+        h('button', { class: 'small', onclick: () => duplicate(its) }, 'Duplicate'), h('button', { class: 'small danger', onclick: () => { sc.items = sc.items.filter((i) => !st.multi.has(i.id)); setSel([]); changed(); drawAll(); preview(); } }, 'Delete')),
+      h('div', { class: 'dim', style: { fontSize: '12px' } }, Object.entries(counts).map(([k, n]) => n + ' × ' + k).join(', ')),
+      h('div', { class: 'card' }, h('h3', {}, 'Align'), h('div', { class: 'pill-row' }, al('left', '⇤ Left', 'Align left edges'), al('hcenter', '⇔ Centre', 'Centre horizontally'), al('right', '⇥ Right', 'Align right edges'),
+        al('top', '⤒ Top', 'Align top (back) edges'), al('vcenter', '⇕ Middle', 'Centre vertically'), al('bottom', '⤓ Bottom', 'Align bottom (front) edges'))),
+      h('div', { class: 'dim', style: { fontSize: '12px' } }, 'Drag any selected item to move them all; arrows nudge (Shift: a tile), R rotates, Delete removes, Ctrl+D duplicates. Ctrl/Shift-click adds or removes one; drag on empty floor to select a box; Ctrl+A selects everything.'));
   }
   function drawRoomInspector(sc, light) {
     const r = sc.rooms.find((x) => x.id === st.sel.id); if (!r) { mount(insp); return; }

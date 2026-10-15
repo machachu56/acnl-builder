@@ -12,7 +12,7 @@
  "buildings": [
   {
    "id": "baisodrome",
-   "name": "Baisodrome",
+   "name": "Sex Hotel",
    "slot": 77,
    "model": "sobj_baisod",
    "scene": 65,
@@ -21,10 +21,13 @@
    "interior": "baiso_in",
    "hide_furniture": true,
    "style": {
-    "base": "policeB"
+    "base": "policeB",
+    "overlay": "baisodrome_overlay.png"
    },
    "map_name": {
-    "en": "Baisodrome"
+    "en": "Sex Hotel",
+    "es": "Puticlub",
+    "fr": "Baisodrome"
    },
    "map_icon": {
     "shape": "heart",
