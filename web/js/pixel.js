@@ -1,11 +1,11 @@
 // A pixel editor on a <canvas>: pencil, eraser, fill, picker, line, rect, ellipse, selection-free filters, zoom/pan, undo.
-import { h, mount } from './ui.js';
+import { h, mount, toast, pickFile, loadImage, download } from './ui.js';
 
 export class PixelEditor {
   constructor(opts = {}) {
     this.w = 0; this.h = 0; this.px = null;          // ImageData-like RGBA Uint8ClampedArray
     this.zoom = 8; this.tool = 'pencil'; this.color = [0, 0, 0, 255]; this.size = 1; this.grid = true;
-    this.undo = []; this.redo = []; this.onchange = opts.onchange || (() => {}); this.overlay = null; this.regions = null; this.uv = null; this.showUV = true;
+    this.undo = []; this.redo = []; this.onchange = opts.onchange || (() => {}); this.opts = opts; this.overlay = null; this.regions = null; this.uv = null; this.showUV = true;
     this.alphaLock = false; this.mirrorX = false; this.recent = [];
     this.canvas = h('canvas', { style: { imageRendering: 'pixelated', cursor: 'crosshair', touchAction: 'none' } });
     this.wrap = h('div', { class: 'canvas-wrap', style: { overflow: 'auto', maxHeight: '100%', flex: 1, minHeight: '200px' } }, this.canvas);
@@ -24,6 +24,9 @@ export class PixelEditor {
       h('label', { class: 'row', style: { gap: '4px' } }, h('span', { class: 'dim' }, 'Size'), (this.sizeEl = h('input', { type: 'number', min: 1, max: 16, value: 1, style: { width: '52px' }, oninput: (e) => { this.size = Math.max(1, +e.target.value || 1); } }))),
       h('div', { class: 'sep-v' }),
       h('button', { class: 'small', onclick: () => this.undoStep(), title: 'Undo (Ctrl+Z)' }, '↶'), h('button', { class: 'small', onclick: () => this.redoStep(), title: 'Redo (Ctrl+Y)' }, '↷'),
+      h('div', { class: 'sep-v' }),
+      h('button', { class: 'small', title: 'Save the texture as a PNG file, to edit it in another program', onclick: () => this.exportPng() }, '⇩ Export PNG'),
+      h('button', { class: 'small', title: 'Load a PNG (from Blender, GIMP, Krita…) into the editor', onclick: () => this.importPng() }, '⇧ Import PNG'),
       h('div', { class: 'sep-v' }),
       h('button', { class: 'small', onclick: () => this.setZoom(this.zoom / 2) }, '−'), (this.zoomEl = h('span', { class: 'dim', style: { minWidth: '34px', textAlign: 'center' } }, '8×')), h('button', { class: 'small', onclick: () => this.setZoom(this.zoom * 2) }, '+'),
       h('button', { class: 'small', onclick: () => this.fit() }, 'Fit'),
@@ -64,12 +67,39 @@ export class PixelEditor {
     const c = document.createElement('canvas'); c.width = this.w; c.height = this.h;
     c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(this.px), this.w, this.h), 0, 0); return c;
   }
+  // export / import the current texture as a PNG file (opts.filename() names it; opts.freeSize lets the image change the size, opts.validate(w, h) may refuse it)
+  async exportPng() {
+    if (!this.px) { toast('Nothing to export yet', 'info'); return; }
+    download(((this.opts.filename && this.opts.filename()) || 'texture').replace(/[^A-Za-z0-9._-]+/g, '_') + '.png', await this.toBlob());
+  }
+  async importPng() {
+    if (!this.px) { toast('Open a texture first', 'info'); return; }
+    const f = await pickFile('image/png,image/*'); if (!f) return;
+    const url = URL.createObjectURL(f);
+    try {
+      const im = await loadImage(url);
+      let w = this.w, hh = this.h;
+      if (this.opts.freeSize) {
+        const bad = this.opts.validate && this.opts.validate(im.width, im.height);
+        if (bad) { toast(bad, 'error'); return; }
+        w = im.width; hh = im.height;
+      }
+      this.snapshot();
+      const c = document.createElement('canvas'); c.width = w; c.height = hh;
+      const g = c.getContext('2d', { willReadFrequently: true }); g.imageSmoothingEnabled = !(im.width <= w && im.height <= hh);
+      g.drawImage(im, 0, 0, w, hh);
+      this.px = g.getImageData(0, 0, w, hh).data; this.w = w; this.h = hh; this.canvas.width = w; this.canvas.height = hh;
+      this.fit(); this.draw(); this.onchange();
+      if (im.width !== w || im.height !== hh) toast('The image was scaled from ' + im.width + '×' + im.height + ' to ' + w + '×' + hh, 'info');
+    } catch (e) { toast('Could not read that image', 'error'); }
+    finally { URL.revokeObjectURL(url); }
+  }
   toBlob() { return new Promise((res) => this.toCanvas().toBlob(res, 'image/png')); }
   snapshot() { this.undo.push(new Uint8ClampedArray(this.px)); if (this.undo.length > 60) this.undo.shift(); this.redo = []; }
   undoStep() { if (!this.undo.length) return; this.redo.push(this.px); this.px = this.undo.pop(); this.draw(); this.onchange(); }
   redoStep() { if (!this.redo.length) return; this.undo.push(this.px); this.px = this.redo.pop(); this.draw(); this.onchange(); }
   // ---- view
-  fit() { const a = this.wrap.clientWidth || 600, b = this.wrap.clientHeight || 400; let z = 1; while ((this.w * z * 2 <= a - 8) && (this.h * z * 2 <= b - 8) && z < 32) z *= 2; this.setZoom(z); }
+  fit() { const a = this.wrap.clientWidth || 600, b = this.wrap.clientHeight || 400; let z = Math.min((a - 8) / this.w, (b - 8) / this.h); z = z >= 2 ? Math.floor(z) : Math.max(1, Math.floor(z * 2) / 2); this.setZoom(Math.min(32, z)); }
   setZoom(z) { this.zoom = Math.max(0.5, Math.min(48, z)); this.canvas.style.width = this.w * this.zoom + 'px'; this.canvas.style.height = this.h * this.zoom + 'px'; this.zoomEl.textContent = this.zoom + '×'; this.draw(); }
   draw() {
     if (!this.px) return;

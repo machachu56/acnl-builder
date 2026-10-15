@@ -210,6 +210,7 @@ void load_config() {
             page = nullptr;
             if (!memcmp(line, "[building]", 10)) { cur = g_nb < MAX_MODS ? &g_b[g_nb++] : nullptr; if (cur) init_building(*cur); }
             else if (!memcmp(line, "[page]", 6) && cur && cur->npages < MAX_PAGES) page = &cur->pages[cur->npages++];
+            else cur = nullptr;                                    /* a section this plugin does not read (e.g. [outfit]) */
         } else if (cur) {
             char *eq = line;
             while (*eq && *eq != '=') eq++;

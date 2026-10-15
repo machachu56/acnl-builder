@@ -245,7 +245,7 @@ export function render(root, app) {
     if (!cached) await preview.now();
     const [aw, ah] = atlasSize || [256, 128];
     let saveTimer = null;
-    editor = new PixelEditor({ onchange: () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 700); } });
+    editor = new PixelEditor({ onchange: () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 700); }, filename: () => (b.name || b.id || 'building') + '_paint_over' });
     editor.regions = regions;
     if (s.overlay) { try { editor.load(await loadImage(`/api/project/${S.pid}/asset/${encodeURIComponent(s.overlay)}?t=${Date.now()}`)); } catch (e) { editor.blank(aw, ah); } } else editor.blank(aw, ah);
     const base = h('img', { src: 'data:image/png;base64,' + (cached.parts[0].atlas), style: { position: 'absolute', left: 0, top: 0, imageRendering: 'pixelated', pointerEvents: 'none' } });

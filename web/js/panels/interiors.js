@@ -476,7 +476,7 @@ export function render(root, app) {
   async function drawImage(n) {
     const sc = scene(), m = sc.materials[n];
     const [w, hh] = m.type === 'floor' ? [32, 32] : m.type === 'wall' ? [32, 64] : (m.size || [16, 16]);
-    const ed = new PixelEditor({});
+    const ed = new PixelEditor({ filename: () => n, freeSize: m.type === 'prop', validate: (iw, ih) => (iw > 128 || ih > 128) ? 'Props use at most 128 × 128 pixels (the room has one small shared texture)' : null });
     if (m.image) ed.load(await loadImage(`/api/project/${S.pid}/asset/${encodeURIComponent(m.image)}?t=${Date.now()}`));
     else { // start from the preset's look, rendered by the server
       try { const r = await post('/api/interior/preview', { scene: { ...sc, items: [], rooms: [{ id: 'main', rect: [1, 1, 3, 3], floor: n.startsWith('floor') || m.type === 'floor' ? n : undefined, wall: m.type === 'wall' ? n : undefined }], main: 'main', materials: { [n]: m }, palettes: {} }, project: S.pid }); const im = await dataImage(r.mesh.atlas); const rg = r.regions && r.regions['m:' + n]; ed.blank(w, hh, [200, 200, 200, 255]); if (rg) { const c = document.createElement('canvas'); c.width = w; c.height = hh; c.getContext('2d').drawImage(im, rg[0], rg[1], rg[2] - rg[0], rg[3] - rg[1], 0, 0, w, hh); ed.load(c); } } catch (e) { ed.blank(w, hh, [200, 200, 200, 255]); }

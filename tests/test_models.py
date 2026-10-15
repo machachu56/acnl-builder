@@ -207,3 +207,23 @@ class Engine(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_ENGINE and os.path.isfile(env.ROM), "game dump not available")
+class Outfits(unittest.TestCase):
+    def test_default_outfit_and_variant(self):
+        import tempfile
+        from acnlb import build, project
+        from acnlb.features import textures as texmod
+        with tempfile.TemporaryDirectory() as td:
+            env.PROJECTS = td
+            proj = project.blank("tst")
+            os.makedirs(os.path.join(td, "tst", "assets"))
+            open(os.path.join(td, "tst", "assets", "o.png"), "wb").write(png((255, 0, 0, 255), (64, 256)))
+            proj["villagers"] = [{"id": "ant00", "name": {}, "catchphrase": {}, "default_outfit": "a",
+                                  "outfits": [{"id": "a", "name": "A", "textures": {"b0": "o.png"}}, {"id": "b", "name": "B", "textures": {"b0": "o.png"}}]}]
+            b = build.build(proj, only=["villagers"])
+            self.assertIn("romfs/Npc/Normal/Model/ant00.bcres", b.files)
+            self.assertIn("romfs.outfit_ant00_b/Npc/Normal/Model/ant00.bcres", b.files)
+            self.assertEqual(len(b.cfg["outfits"]), 2)
+            self.assertTrue(b.warnings)                                   # outfit b is worn by nothing yet

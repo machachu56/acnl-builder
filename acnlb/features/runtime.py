@@ -25,4 +25,6 @@ def config_text(b):
             if pg.get("entry"):
                 out.append("entry = %s" % pg["entry"])
             out += ["link = %s" % l for l in pg.get("links", [])]
+    for o in b.cfg.get("outfits", []):
+        out += ["", "[outfit]", "villager = %s" % o["villager"], "id = %s" % o["id"], "model = %s" % o["model"], "variant = %s" % o["variant"]]
     return "\n".join(out) + "\n"

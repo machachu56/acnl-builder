@@ -24,7 +24,8 @@ export function render(root, app) {
   mount(root, h('div', { class: 'page-head' }, h('h2', {}, 'Texture studio'), h('p', {}, 'Repaint villagers, clothes, furniture or any game model. Edits are saved as PNGs in the project.')),
     h('div', { class: 'split', style: { gridTemplateColumns: '270px minmax(420px,1fr) 360px' } }, left, center, right));
 
-  const editor = new PixelEditor({ onchange: () => { st.dirty = true; saveSoon(); viewerTex(); } });
+  const editor = new PixelEditor({ onchange: () => { st.dirty = true; saveSoon(); viewerTex(); uvEdges(); }, freeSize: true, filename: () => (st.model || 'model').split('/').pop().replace('.bcres', '') + '_' + (st.tex || 'texture'),
+    validate: (w, hh) => (w % 8 || hh % 8) ? 'Width and height must be multiples of 8 (the game\'s texture format)' : null });
   let viewer = null, viewerModel = null;
 
   // ---- model list
@@ -88,8 +89,6 @@ export function render(root, app) {
         t.name, P.textures.some((x) => x.file === st.model && x.name === t.name) ? ' ●' : '', t.supported ? '' : ' (read-only)'))),
       h('div', { class: 'toolbar' }, h('b', {}, st.model.replace(/^\//, '')),
         h('div', { class: 'grow' }),
-        h('button', { class: 'small', onclick: async () => { const f = await pickFile('image/png,image/*'); if (!f) return; const im = await loadImage(URL.createObjectURL(f)); if (im.width % 8 || im.height % 8) { toast('Width and height must be multiples of 8', 'error'); return; } editor.snapshot(); editor.w = im.width; editor.h = im.height; const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0); editor.px = g.getImageData(0, 0, im.width, im.height).data; editor.canvas.width = im.width; editor.canvas.height = im.height; editor.fit(); editor.draw(); st.dirty = true; saveSoon(); viewerTex(); } }, 'Import PNG…'),
-        h('button', { class: 'small', onclick: async () => { if (editor.px) download((st.tex || 'texture') + '.png', await editor.toBlob()); } }, 'Export PNG'),
         h('button', { class: 'small danger', onclick: revert }, 'Revert to original')),
       h('div', { class: 'toolbar' }, h('span', { class: 'dim' }, 'Recolor'),
         h('button', { class: 'small', onclick: () => editor.px && editor.hueShift(30) }, 'Hue +30°'), h('button', { class: 'small', onclick: () => editor.px && editor.hueShift(-30) }, 'Hue −30°'),
