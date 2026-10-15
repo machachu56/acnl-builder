@@ -189,10 +189,10 @@ class GameMapTests(unittest.TestCase):
         from acnlb import gamemap, probe
         gm = gamemap.load()
         v = gm.classes["AcNpcNml"]["vtable"]
-        log = "probe: actor profile=123 arg=0000007b obj=00200000 vtable=%08x scene=1/1\nprobe: BsWeatherRain::#3 r0=1 r1=2 r2=3 r3=4 from=00100010\n" % v
+        log = "probe: actor profile=123 arg=0000007b obj=00200000 vtable=%08x scene=1/1\nprobe: BsWeatherRain.3 r0=1 r1=2 r2=3 r3=4 from=00100010\n" % v
         out = probe.report(log)
         self.assertIn("AcNpcNml", out)
-        self.assertIn("BsWeatherRain::#3", out)
+        self.assertIn("BsWeatherRain.3", out)
 
 
 if __name__ == "__main__":

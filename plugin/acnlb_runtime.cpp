@@ -404,13 +404,32 @@ int hook_probe(void *user) {
 }
 Saved s_probe_actor;
 int g_probe_actor_n = 0;
+uint8_t g_probe_seen[1024];
 int hook_probe_actor_pre(void *) { push(s_probe_actor, acnl_reg(0)); return ACNL_CONTINUE; }
-void hook_probe_actor_post(void *) {
-    uint32_t arg = pop(s_probe_actor), obj = acnl_reg(0);
-    if (g_probe_actor_n++ >= 400) return;
+/* the class name of a C++ object: vtable[-1] is its typeinfo, whose second word points at the mangled name */
+void class_name_of(uint32_t obj, char *out, int cap) {
+    out[0] = 0;
     uint32_t vt = obj >= 0x100000 ? acnl_rd32(obj) : 0;
-    acnl_log("probe: actor profile=%u arg=%08x obj=%08x vtable=%08x scene=%u/%u", (unsigned)(arg & 0xFFFF), (unsigned)arg, (unsigned)obj, (unsigned)vt,
-             (unsigned)acnl_rd8(0x956320 + 2), (unsigned)acnl_rd8(0x956320 + 3));
+    if (vt < 0x100000) return;
+    uint32_t ti = acnl_rd32(vt - 4);
+    if (ti < 0x100000) return;
+    uint32_t np = acnl_rd32(ti + 4);
+    if (np < 0x100000) return;
+    int i = 0;
+    for (; i < cap - 1; i++) { uint8_t c = acnl_rd8(np + (uint32_t)i); if (c < 32 || c > 126) break; out[i] = (char)c; }
+    out[i] = 0;
+}
+void hook_probe_actor_post(void *) {
+    uint32_t arg = pop(s_probe_actor), obj = acnl_reg(0), prof = arg & 0xFFFF;
+    if (g_probe_actor_n >= 6000) return;
+    if (prof < 1024 && g_probe_seen[prof] >= 3) return;          /* the first three of each profile are enough */
+    if (prof < 1024) g_probe_seen[prof]++;
+    g_probe_actor_n++;
+    char nm[64];
+    class_name_of(obj, nm, sizeof nm);
+    uint32_t vt = obj >= 0x100000 ? acnl_rd32(obj) : 0;
+    acnl_log("probe: actor profile=%u arg=%08x obj=%08x vtable=%08x scene=%u/%u class=%s", (unsigned)prof, (unsigned)arg, (unsigned)obj, (unsigned)vt,
+             (unsigned)acnl_rd8(0x956320 + 2), (unsigned)acnl_rd8(0x956320 + 3), nm);
     if (obj >= 0x100000) {
         uint32_t w[16];
         if (acnl_read(obj, w, sizeof w) == 0)

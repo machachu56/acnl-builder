@@ -20,6 +20,7 @@ MOD_INI = "# probe mod made by ACNL Builder\nenabled = true\n"
 
 
 def hooks_for(gm, class_names, addrs):
+    shared = collections.Counter(m & ~1 for c in gm.classes.values() for m in set(c["methods"]))   # methods many classes share (the base-class plumbing) say nothing
     out = []
     for name in class_names:
         c = gm.classes.get(name)
@@ -27,10 +28,10 @@ def hooks_for(gm, class_names, addrs):
             raise SystemExit("no class %r (try `python3 -m acnlb map --find %s`)" % (name, name[:6]))
         seen = set()
         for i, m in enumerate(c["methods"]):
-            if m in seen:
+            if m in seen or shared[m & ~1] > 3:
                 continue
             seen.add(m)
-            out.append((m, "%s::#%d" % (name, i)))
+            out.append((m, "%s.%d" % (name, i)))
     out += [(a, "fn_%x" % a) for a in addrs]
     return out[:400]
 
@@ -52,15 +53,18 @@ def report(text):
     owner = {}
     for n, c in gm.classes.items():
         for i, m in enumerate(c["methods"]):
-            owner.setdefault(m & ~1, "%s::#%d" % (n, i))
+            owner.setdefault(m & ~1, "%s.%d" % (n, i))
     lines = [l.split("probe: ", 1)[1] for l in text.splitlines() if "probe: " in l]
     actors, calls = collections.OrderedDict(), collections.defaultdict(lambda: [0, collections.Counter(), []])
     words = {}
+    names = {}
     last = None
     for l in lines:
-        m = re.match(r"actor profile=(\d+) arg=(\w+) obj=(\w+) vtable=(\w+) scene=(\d+)/(\d+)", l)
+        m = re.match(r"actor profile=(\d+) arg=(\w+) obj=(\w+) vtable=(\w+) scene=(\d+)/(\d+)(?: class=(\S*))?", l)
         if m:
             prof, vtab = int(m.group(1)), int(m.group(4), 16)
+            if m.group(7):
+                names[vtab] = gamemap.demangle(m.group(7))
             e = actors.setdefault((prof, vtab), [0, set()])
             e[0] += 1
             e[1].add(int(m.group(5)))
@@ -81,12 +85,12 @@ def report(text):
     if actors:
         out.append("ACTORS created (profile number -> class):")
         for (prof, v), (n, scenes) in sorted(actors.items()):
-            out.append("  profile %-5d 0x%-4x  %-28s x%-3d scenes %s" % (prof, prof, vt.get(v, "vtable 0x%x" % v), n, sorted(scenes)))
+            out.append("  profile %-5d 0x%-4x  %-28s x%-3d scenes %s" % (prof, prof, names.get(v) or vt.get(v, "vtable 0x%x" % v), n, sorted(scenes)))
             if (prof, v) in words:
                 out.append("      first words: " + words[(prof, v)])
     if calls:
         out.append("")
-        out.append("CALLS (first 30 of each are logged):")
+        out.append("CALLS (the first 30 of each are logged):")
         for label, (n, frm, ex) in sorted(calls.items(), key=lambda x: -x[1][0]):
             out.append("  %-34s %4d call(s)   e.g. %s" % (label, n, ex[0] if ex else ""))
             for a, k in frm.most_common(2):
