@@ -403,6 +403,22 @@ int hook_probe(void *user) {
         acnl_log("probe: %s r0=%08x r1=%08x r2=%08x r3=%08x from=%08x", p.label, (unsigned)acnl_reg(0), (unsigned)acnl_reg(1), (unsigned)acnl_reg(2), (unsigned)acnl_reg(3), (unsigned)acnl_return_address());
     return ACNL_CONTINUE;
 }
+/* an actor's memory after the game has finished setting it up: comparing a genuine character with a spawned copy shows which
+   fields hold its identity (model, NPC id) and its place */
+void probe_dump(const char *what, uint32_t obj, uint32_t prof) {
+    if (obj < 0x100000) return;
+    uint32_t w[128];
+    if (acnl_read(obj, w, sizeof w) != 0) return;
+    for (int k = 0; k < 128; k += 16)
+        acnl_log("probe: %s %u +%03x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x", what, (unsigned)prof, k * 4,
+                 (unsigned)w[k], (unsigned)w[k+1], (unsigned)w[k+2], (unsigned)w[k+3], (unsigned)w[k+4], (unsigned)w[k+5], (unsigned)w[k+6], (unsigned)w[k+7],
+                 (unsigned)w[k+8], (unsigned)w[k+9], (unsigned)w[k+10], (unsigned)w[k+11], (unsigned)w[k+12], (unsigned)w[k+13], (unsigned)w[k+14], (unsigned)w[k+15]);
+}
+Saved s_probe_spawn;
+void hook_probe_spawn_post(void *) {
+    uint32_t prof = pop(s_probe_spawn), obj = acnl_reg(0);
+    if (prof == 454 || prof == 492 || prof == 419 || prof == 500) probe_dump("spawned", obj, prof);
+}
 /* the spawn function's arguments: the struct r1 points at (profile first) and the stack arguments, to learn what each field means */
 int g_probe_spawn_n = 0;
 int hook_probe_spawn_pre(void *) {
@@ -421,22 +437,6 @@ int hook_probe_spawn_pre(void *) {
         acnl_log("probe: spawn-desc+%02x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x", k * 4, (unsigned)w[k], (unsigned)w[k+1], (unsigned)w[k+2], (unsigned)w[k+3], (unsigned)w[k+4], (unsigned)w[k+5], (unsigned)w[k+6], (unsigned)w[k+7], (unsigned)w[k+8], (unsigned)w[k+9], (unsigned)w[k+10], (unsigned)w[k+11], (unsigned)w[k+12], (unsigned)w[k+13], (unsigned)w[k+14], (unsigned)w[k+15]);
     acnl_log("probe: spawn-stack %08x %08x %08x %08x %08x %08x %08x %08x", (unsigned)s[0], (unsigned)s[1], (unsigned)s[2], (unsigned)s[3], (unsigned)s[4], (unsigned)s[5], (unsigned)s[6], (unsigned)s[7]);
     return ACNL_CONTINUE;
-}
-/* an actor's memory after the game has finished setting it up: comparing a genuine character with a spawned copy shows which
-   fields hold its identity (model, NPC id) and its place */
-void probe_dump(const char *what, uint32_t obj, uint32_t prof) {
-    if (obj < 0x100000) return;
-    uint32_t w[128];
-    if (acnl_read(obj, w, sizeof w) != 0) return;
-    for (int k = 0; k < 128; k += 16)
-        acnl_log("probe: %s %u +%03x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x", what, (unsigned)prof, k * 4,
-                 (unsigned)w[k], (unsigned)w[k+1], (unsigned)w[k+2], (unsigned)w[k+3], (unsigned)w[k+4], (unsigned)w[k+5], (unsigned)w[k+6], (unsigned)w[k+7],
-                 (unsigned)w[k+8], (unsigned)w[k+9], (unsigned)w[k+10], (unsigned)w[k+11], (unsigned)w[k+12], (unsigned)w[k+13], (unsigned)w[k+14], (unsigned)w[k+15]);
-}
-Saved s_probe_spawn;
-void hook_probe_spawn_post(void *) {
-    uint32_t prof = pop(s_probe_spawn), obj = acnl_reg(0);
-    if (prof == 454 || prof == 492 || prof == 419 || prof == 500) probe_dump("spawned", obj, prof);
 }
 Saved s_probe_actor;
 int g_probe_actor_n = 0;
