@@ -535,7 +535,7 @@ void script_fire(int kind, const char *building, const char *room, uint32_t num,
     for (int i = 0; i < g_prog.nhandlers; i++) {
         const sv::Handler &h = g_prog.h[i];
         if (h.kind != kind) continue;
-        if (kind == sv::K_ACTOR && !(num >= h.num && num <= (h.s2 != 0xFFFF ? (uint32_t)h.s2 : h.num))) continue;
+        if ((kind == sv::K_ACTOR || kind == sv::K_SPAWN) && !(num >= h.num && num <= (h.s2 != 0xFFFF ? (uint32_t)h.s2 : h.num))) continue;
         if (kind == sv::K_ENTER || kind == sv::K_LEAVE || kind == sv::K_ROOM) {
             if (!building || !sv::str_is(g_prog, h.s1, building)) continue;
             if (kind == sv::K_ROOM && !(room && sv::str_is(g_prog, h.s2, room))) continue;
