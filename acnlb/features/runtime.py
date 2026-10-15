@@ -1,6 +1,6 @@
 """acnlb.cfg: what the runtime plugin (plugin/acnlb_runtime.cpp) reads.
 
-[building] sections hold keys; a building's rooms follow as [page] sections (variant, jmp, link = x, y, to, ax, ay, yaw).
+[building] sections hold keys; a building's rooms follow as [page] sections (variant, jmp, entry = x, z, yaw, link = x, y, to, ax, ay, yaw).
 """
 
 
@@ -22,5 +22,7 @@ def config_text(b):
             out.append("%s = %s" % (k, _val(v)))
         for pg in bld.get("pages", []):
             out += ["", "[page]", "variant = %s" % pg["variant"], "jmp = %s" % pg["jmp"]]
+            if pg.get("entry"):
+                out.append("entry = %s" % pg["entry"])
             out += ["link = %s" % l for l in pg.get("links", [])]
     return "\n".join(out) + "\n"

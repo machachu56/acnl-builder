@@ -101,6 +101,14 @@ export function pickFile(accept) {
     document.body.append(i); i.click(); setTimeout(() => i.remove(), 60000);
   });
 }
+export function pickFiles(accept) {
+  return new Promise((resolve) => {
+    const i = h('input', { type: 'file', accept, multiple: true, style: { display: 'none' } });
+    i.addEventListener('change', () => resolve([...i.files]));
+    i.addEventListener('cancel', () => resolve([]));
+    document.body.append(i); i.click(); setTimeout(() => i.remove(), 60000);
+  });
+}
 export function loadImage(src) {
   return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
 }

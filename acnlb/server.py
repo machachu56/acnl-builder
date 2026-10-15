@@ -14,7 +14,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import __version__, build, catalog, env, exterior, interior, paintx, project, rom, texfmt
+from . import __version__, build, catalog, env, exterior, interior, models, paintx, project, rom, texfmt
 from .features import interiors as interiors_feature
 from .features import text as textmod
 from .features import textures as texmod
@@ -115,20 +115,25 @@ def asset_get(req, q, pid, name):
     f = project.asset_path(pid, unquote(name))
     if not os.path.isfile(f):
         raise ApiError("no such asset", 404)
-    return ("image/png", open(f, "rb").read())
+    ctype = mimetypes.guess_type(f)[0] or "application/octet-stream"
+    return (ctype, open(f, "rb").read())
 
 
 @route("PUT", r"/api/project/([a-z][a-z0-9_]+)/asset/([^/]+)")
 def asset_put(req, q, pid, name):
     name = unquote(name)
-    if not name.lower().endswith(".png"):
-        raise ApiError("assets are PNG files")
+    ext = os.path.splitext(name)[1].lower()
     data = req.body()
-    from PIL import Image
-    try:
-        Image.open(io.BytesIO(data)).verify()
-    except Exception:
-        raise ApiError("not a valid PNG")
+    if name.startswith("mdl_") and ext in models.EXTENSIONS + models.SUPPORT_EXTENSIONS:
+        pass                                    # a 3D model or a file it refers to (checked when the model is read)
+    elif ext == ".png":
+        from PIL import Image
+        try:
+            Image.open(io.BytesIO(data)).verify()
+        except Exception:
+            raise ApiError("not a valid PNG")
+    else:
+        raise ApiError("assets are PNG files (3D models: glTF/GLB, OBJ, STL, PLY)")
     f = project.asset_path(pid, name)
     os.makedirs(os.path.dirname(f), exist_ok=True)
     with open(f, "wb") as fp:
@@ -280,14 +285,30 @@ def int_preview(req, q):
                 built.add_item(it)
             except Exception as e:          # keep going: show every broken item
                 errs.append("%s: %s" % (it.get("id", "?"), e))
-        errs += built.plan.problems()
+        errs += built.plan.problems() + built.budget()
         built.mesh.weld()
     except interior.SceneError as e:
         return {"error": str(e)}
     plan = built.plan
     return {"mesh": mesh_payload(built.mesh, built.canvas.rows()), "problems": errs,
             "solid": sorted(plan.solid), "floor": sorted(plan.owner), "doorway": sorted(plan.doorway),
-            "atlas_used": built.pack.y, "triangles": len(built.mesh.tris) // 3, "regions": built.pack.regions}
+            "atlas_used": built.pack.y, "triangles": len(built.mesh.tris) // 3, "regions": built.pack.regions,
+            "warnings": built.warnings, "entrance": {"side": plan.side, "door": plan.door, "exit": plan.exit, "bounds": plan.bounds}}
+
+
+@route("POST", "/api/model/info")
+def model_info(req, q):
+    """measure an imported 3D model: size in its own units, triangles, textures"""
+    b = req.json()
+    loader = interiors_feature.asset_loader({"id": b["project"]})
+    main = b["asset"]
+    try:
+        m = models.load(main, interior.asset_fetch(main, loader.bytes), b.get("up", "y"), bool(b.get("flip")))
+    except models.ModelError as e:
+        raise ApiError(str(e))
+    mn, mx = m.bounds()
+    return {"size": [mx[i] - mn[i] for i in range(3)], "triangles": m.triangles, "vertices": m.vertices,
+            "materials": [{"name": x.name, "textured": x.image is not None} for x in m.materials], "notes": m.notes}
 
 
 @route("GET", "/api/interior/presets")

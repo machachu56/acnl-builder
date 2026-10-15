@@ -3,6 +3,24 @@ export const T = 32, GRID = 16, WORLD = GRID * T;
 
 const rot2 = (x, z, rot) => { const a = (rot || 0) * Math.PI / 180, c = Math.round(Math.cos(a) * 1e6) / 1e6, s = Math.round(Math.sin(a) * 1e6) / 1e6; return [x * c + z * s, -x * s + z * c]; };
 
+// The entrance of a scene (mirrors acnlb/interior.py entrance_layout): the two door tiles lie in a strip along one edge,
+// the exit tiles behind them. bounds = the playable area [x0, y0, x1, y1].
+export const SIDES = [['south', 'South (the front, like the original)'], ['east', 'East (right)'], ['west', 'West (left)'], ['north', 'North (the back wall)']];
+export function entrance(sc) {
+  const side = sc.entrance || 'south';
+  let p = sc.entrance_at;
+  if (side === 'south' && p == null) return { side, door: sc.door || [[7, 14], [8, 14]], exit: sc.exit || [[7, 15], [8, 15]], bounds: [0, 0, GRID - 1, 13] };
+  const max = side === 'south' || side === 'north' ? GRID - 2 : GRID - 4;
+  p = p == null ? 7 : Math.max(0, Math.min(max, Math.round(p)));
+  switch (side) {
+    case 'south': return { side, door: [[p, 14], [p + 1, 14]], exit: [[p, 15], [p + 1, 15]], bounds: [0, 0, GRID - 1, 13] };
+    case 'north': return { side, door: [[p, 1], [p + 1, 1]], exit: [[p, 0], [p + 1, 0]], bounds: [0, 2, GRID - 1, 13] };
+    case 'east': return { side, door: [[14, p], [14, p + 1]], exit: [[15, p], [15, p + 1]], bounds: [0, 0, 13, 13] };
+    default: return { side: 'west', door: [[1, p], [1, p + 1]], exit: [[0, p], [0, p + 1]], bounds: [2, 0, GRID - 1, 13] };
+  }
+}
+export const inBounds = (b, x, y) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3];
+
 // axis-aligned bounding box [x0, z0, x1, z1] of an item
 export function bbox(it) {
   switch (it.type) {
@@ -13,6 +31,7 @@ export function bbox(it) {
     case 'stand': return [it.x - 13, it.z - 13, it.x + 13, it.z + 13];
     case 'bed': return rotBox(it.x, it.z, [-28, -26, 28, 28], it.rot);
     case 'game': { const [w, d] = it.fp || [32, 32]; return rotBox(it.x, it.z, [-w / 2, -d / 2, w / 2, d / 2], it.rot); }
+    case 'custom': { const [w, d] = it.fp || [32, 32], k = it.scale || 1; return rotBox(it.x, it.z, [-w * k / 2, -d * k / 2, w * k / 2, d * k / 2], it.rot); }
     case 'quad': { const xs = it.pts.map((p) => p[0]), zs = it.pts.map((p) => p[2]); return [Math.min(...xs) - 1, Math.min(...zs) - 1, Math.max(...xs) + 1, Math.max(...zs) + 1]; }
     case 'wallquad': return [Math.min(it.a[0], it.b[0]) - 2, Math.min(it.a[1], it.b[1]) - 2, Math.max(it.a[0], it.b[0]) + 2, Math.max(it.a[1], it.b[1]) + 2];
     default: return [0, 0, 8, 8];
@@ -30,7 +49,7 @@ export function move(it, dx, dz) {
   switch (it.type) {
     case 'box': case 'flat': f(it, ['x0', 'x1', 'z0', 'z1']); break;
     case 'cyl': case 'extrude': f(it, ['cx', 'cz']); break;
-    case 'lamp': case 'stand': case 'bed': case 'game': f(it, ['x', 'z']); break;
+    case 'lamp': case 'stand': case 'bed': case 'game': case 'custom': f(it, ['x', 'z']); break;
     case 'quad': it.pts = it.pts.map((p) => [p[0] + dx, p[1], p[2] + dz]); break;
     case 'wallquad': it.a = [it.a[0] + dx, it.a[1] + dz]; it.b = [it.b[0] + dx, it.b[1] + dz]; break;
   }
@@ -58,9 +77,12 @@ export function hit(it, x, z) {
 }
 
 // which items can be rotated and by which means
-export const ROTATABLE = new Set(['bed', 'game']);
+export const ROTATABLE = new Set(['bed', 'game', 'custom']);
 // types that are only visual (no collision)
 export const VISUAL = new Set(['flat', 'quad', 'wallquad']);
+
+// raise (positive) or lower an item by dy units: its "lift" above the floor
+export function lift(it, dy) { it.lift = Math.round(((it.lift || 0) + dy) * 100) / 100; if (!it.lift) delete it.lift; }
 
 export function rotate(it) {
   if (!ROTATABLE.has(it.type)) return false;
@@ -92,5 +114,6 @@ export function make(type, x, z, o = {}) {
     case 'bed': return { type, x, z, rot: 0, palette: o.palette };
     case 'stand': return { type, x, z, palette: o.palette };
     case 'game': return { type, path: o.path, x, z, rot: 0, scale: 1, tex_cap: 64, fp: o.fp || [32, 32] };
+    case 'custom': return { type, asset: o.asset, x, z, rot: 0, scale: o.scale || 1, tex_cap: 64, fp: o.fp || [32, 32], size: o.size, up: o.up || 'y' };
   }
 }

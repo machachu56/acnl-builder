@@ -77,6 +77,9 @@ struct Page {
     uint32_t jmp;                 /* guest copy of the grid */
     Link links[MAX_LINKS];
     int nlinks;
+    bool has_entry;               /* where the player appears when coming in from outside (a door not on the south edge) */
+    float entry_x, entry_z;
+    int entry_yaw;
 };
 struct Building {
     char id[32];
@@ -158,6 +161,20 @@ void set_key(Building &b, const char *key, const char *val) {
 void set_page_key(Page &p, const char *key, const char *val) {
     if (!strcmp(key, "variant")) copy_str(p.variant, sizeof p.variant, val);
     else if (!strcmp(key, "jmp")) copy_str(p.jmp_file, sizeof p.jmp_file, val);
+    else if (!strcmp(key, "entry")) {                             /* entry = x, z, yaw */
+        int v[3] = {0, 0, 0};
+        const char *q = val;
+        int k = 0;
+        for (; k < 3; k++) {
+            char *e;
+            v[k] = (int)acnl_strtol(q, &e, 0);
+            if (e == q) break;
+            q = e;
+            while (is_space(*q)) q++;
+            if (*q == ',') q++;
+        }
+        if (k == 3) { p.has_entry = true; p.entry_x = (float)v[0]; p.entry_z = (float)v[1]; p.entry_yaw = v[2]; }
+    }
     else if (!strcmp(key, "link") && p.nlinks < MAX_LINKS) {      /* link = x, y, to page, arrival x, y, yaw */
         int v[6] = {0, 0, 0, 0, 0, 0};
         const char *q = val;
@@ -417,6 +434,14 @@ int hook_goto_pre(void *) {
         if (g_b[0].variant[0]) acnl_set_romfs_variant(g_b[0].variant, 1);
         g_page = 0;
         want = acnl_reg(1) & 0xFF;
+    }
+    if (g_cur >= 0 && cur == 0 && g_b[g_cur].scene >= 0 && want == (uint32_t)g_b[g_cur].scene && g_b[g_cur].npages && g_b[g_cur].pages[0].has_entry) {
+        /* coming in through the door of a room whose entrance is on another edge than the south one */
+        const Page &pg0 = g_b[g_cur].pages[0];
+        float np[3] = {pg0.entry_x, 32.0f, pg0.entry_z};
+        uint16_t na[3] = {0, (uint16_t)pg0.entry_yaw, 0};
+        acnl_write(acnl_reg(2), np, 12);
+        acnl_write(acnl_reg(3), na, 6);
     }
     if (g_cur >= 0 && g_page < g_b[g_cur].npages && cur == (uint32_t)g_b[g_cur].scene && want == 0 && g_player) {
         Building &b = g_b[g_cur];

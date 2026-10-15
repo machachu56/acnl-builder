@@ -14,7 +14,7 @@ named *materials* that are painted procedurally (presets) or come from PNG asset
 import math
 import struct
 
-from . import env, paintx, texfmt
+from . import env, models, paintx, texfmt
 from .paintx import Canvas, hex_rgb, rgba, shade
 
 env.setup_path()
@@ -37,11 +37,97 @@ SCENE_DEFAULT = {
     "materials": {}, "palettes": {}, "rooms": [], "items": [],
     # ways to other rooms of the same building: {"id", "tiles": [[x, y]...], "to": scene id, "arrive": [x, y], "face": 0|90|180|270}
     "links": [],
+    # the entrance: which edge of the 16 x 16 plan the door is on ("south", "east", "west", "north") and where along it
+    # (the first of the two door tiles); without "entrance" the "door" / "exit" tiles above are used as they are
 }
+
+ENTRANCES = ("south", "east", "west", "north")
+YAW = {"south": 0, "east": 16384, "north": 32768, "west": 49152}        # the direction the player looks at
+SIGN_MAX_W = 256                                                        # pixels; a sign is 1 (or 2) pixels per unit
+SIGN_DEFAULTS = {"fg": "#ffeef4", "bg": "#784632", "outline": "#78143c", "frame": "#e6be5a"}
+
+
+def entrance_layout(spec):
+    """the entrance of a scene: {"door": tiles (the walkable doorway), "exit": tiles (leaving the room), "bounds":
+    (x0, y0, x1, y1) of the playable area, "spawn": (x, z, yaw) where the player appears, or None for the game's own
+    (south) arrival}. The door tiles lie in a strip along one edge, the exit tiles behind them, like the original
+    room's south door in rows 14 and 15."""
+    side = spec.get("entrance") or "south"
+    if side not in ENTRANCES:
+        raise SceneError("the entrance must be south, east, west or north (not %r)" % side)
+    p = spec.get("entrance_at")
+    if side == "south" and p is None:
+        door, exit_ = spec.get("door") or [[7, 14], [8, 14]], spec.get("exit") or [[7, 15], [8, 15]]
+        return {"side": side, "door": [tuple(t) for t in door], "exit": [tuple(t) for t in exit_], "bounds": (0, 0, GRID - 1, 13), "spawn": None}
+    p = 7 if p is None else max(0, min(int(p), GRID - 2 if side in ("south", "north") else GRID - 4))   # the door is two tiles wide
+    if side == "south":
+        return {"side": side, "door": [(p, 14), (p + 1, 14)], "exit": [(p, 15), (p + 1, 15)], "bounds": (0, 0, GRID - 1, 13), "spawn": None}
+    if side == "north":
+        return {"side": side, "door": [(p, 1), (p + 1, 1)], "exit": [(p, 0), (p + 1, 0)], "bounds": (0, 2, GRID - 1, 13),
+                "spawn": ((p + 1) * TILE, 1.5 * TILE, YAW["south"])}
+    if side == "east":
+        return {"side": side, "door": [(14, p), (14, p + 1)], "exit": [(15, p), (15, p + 1)], "bounds": (0, 0, 13, 13),
+                "spawn": (14.5 * TILE, (p + 1) * TILE, YAW["west"])}
+    return {"side": side, "door": [(1, p), (1, p + 1)], "exit": [(0, p), (0, p + 1)], "bounds": (2, 0, GRID - 1, 13),
+            "spawn": (1.5 * TILE, (p + 1) * TILE, YAW["east"])}
+
+
+def door_groups(tiles):
+    """doorway tiles -> lists of tiles that touch each other (a sign goes over each group)"""
+    left, out = {tuple(t) for t in tiles}, []
+    while left:
+        todo = [min(left)]
+        grp = []
+        left.discard(todo[0])
+        while todo:
+            x, y = todo.pop()
+            grp.append((x, y))
+            for n in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                if n in left:
+                    left.discard(n)
+                    todo.append(n)
+        out.append(sorted(grp))
+    return sorted(out)
+
+
+def sign_px(room, width):
+    """atlas size of a sign `width` units wide (16 high): 1 pixel per unit like the original signs, or 2 ("high" detail,
+    or "auto" when the text would get too small to read at 1)"""
+    detail = room.get("label_detail") or "auto"
+    k = 2 if detail == "high" else 1
+    if detail == "auto":
+        w = max(32, int(width))
+        if paintx.fit_text(str(room.get("label", "")), w - 10, 16 - 8, room.get("label_font") or None, max_size=11, min_size=1)[1] < 7.5:
+            k = 2
+    return (min(SIGN_MAX_W, max(32, int(width) * k)), 16 * k)
+
+
+def sign_regions(room):
+    """[(region name, tiles, width in units, vertical?)] of the signs over a room's doorways"""
+    out = []
+    if not room.get("label") or not room.get("doors"):
+        return out
+    for k, grp in enumerate(door_groups(room["doors"])):
+        xs, ys = [t[0] for t in grp], [t[1] for t in grp]
+        vertical = len(set(ys)) > 1 and len(set(xs)) == 1
+        width = ((max(ys) - min(ys) + 1) if vertical else (max(xs) - min(xs) + 1)) * TILE
+        out.append(("sign:%s:%d" % (room["id"], k), grp, width, vertical))
+    return out
 
 
 class SceneError(ValueError):
     pass
+
+
+def asset_fetch(main, files):
+    """fetch(name) for models.load: the model's own file, or a file it refers to, which was uploaded next to it as
+    <prefix>__<name> (prefix = the part of the main asset's name before "__"; odd characters of file names become "_")"""
+    import re
+    prefix = main.split("__", 1)[0] + "__" if "__" in main else ""
+
+    def fetch(name):
+        return files(name if name == main else prefix + re.sub(r"[^A-Za-z0-9._-]", "_", name))
+    return fetch
 
 
 # =============================================================== material painters
@@ -274,6 +360,32 @@ def paint_prop(c, m, r):
         c.noise(r, m["noise"], seed=5, scale=1)
 
 
+def paint_sign(c, r, room):
+    """the lettering over a doorway: its own colours, font and look (room["label_colors"], ["label_font"], ["label_style"]);
+    the text is made to fit, never stretched"""
+    x0, y0, x1, y1 = r
+    k = (y1 - y0) // 16
+    lc = dict(SIGN_DEFAULTS)
+    lc.update({k: v for k, v in (room.get("label_colors") or {}).items() if k in SIGN_DEFAULTS or k == "outline"})
+    style = room.get("label_style") or "plate"
+    fg, bg, frame = rgba(lc["fg"]), rgba(lc["bg"]), rgba(lc["frame"])
+    outline = rgba(lc["outline"]) if lc.get("outline") else None
+    if style == "flat":
+        c.rect(r, bg)
+        inner = (x0 + 2 * k, y0 + 1 * k, x1 - 2 * k, y1 - 1 * k)
+    elif style == "neon":
+        c.rect(r, bg)
+        c.rect((x0, y0, x1, y0 + k), frame)
+        c.rect((x0, y1 - k, x1, y1), frame)
+        inner = (x0 + 3 * k, y0 + 2 * k, x1 - 3 * k, y1 - 2 * k)
+    else:                                                       # plate
+        c.rrect(r, 3 * k, frame)
+        c.rrect((x0 + k, y0 + k, x1 - k, y1 - k), 2 * k, bg)
+        inner = (x0 + 3 * k, y0 + 2 * k, x1 - 3 * k, y1 - 2 * k)
+    c.text(str(room.get("label", "")), inner, fg, font=room.get("label_font") or None, size=int((y1 - y0) * 0.7), fit=True,
+           outline=outline, outline_w=(1.2 if style != "flat" else 0.8) * k)
+
+
 # ---------------------------------------------------------------- bed palettes (the "love hotel" bed set)
 
 BED_PARTS = {"frame": (64, 16), "sheet": (64, 32), "head": (48, 48), "stand": (32, 32), "pillow": (32, 16)}
@@ -326,8 +438,10 @@ class Plan:
         self.owner = {}                # floor tile -> room id
         self.solid = set()
         self.doorway = {}              # tile -> room it leads to
-        self.door = [tuple(t) for t in spec["door"]]
-        self.exit = [tuple(t) for t in spec["exit"]]
+        lay = entrance_layout(spec)
+        self.side, self.bounds, self.spawn = lay["side"], lay["bounds"], lay["spawn"]
+        self.door = lay["door"]
+        self.exit = lay["exit"]
         main = spec["main"]
         for r in spec["rooms"]:
             x0, y0, x1, y1 = r["rect"]
@@ -337,6 +451,9 @@ class Plan:
                         raise SceneError("room %s leaves the 16 x 16 grid" % r["id"])
                     if (x, y) in self.owner:
                         raise SceneError("rooms %s and %s overlap at tile %d,%d" % (self.owner[(x, y)], r["id"], x, y))
+                    if self.side != "south" and (x, y) not in self.door and not (self.bounds[0] <= x <= self.bounds[2] and self.bounds[1] <= y <= self.bounds[3]):
+                        raise SceneError("room %s reaches into the entrance strip (tile %d,%d): the %s door needs the two rows/columns along that edge free"
+                                         % (r["id"], x, y, self.side))
                     self.owner[(x, y)] = r["id"]
         for r in spec["rooms"]:
             for t in r.get("doors", []):
@@ -375,6 +492,8 @@ class Plan:
                 out.append("a doorway or the entrance (tile %d,%d) is blocked by furniture" % t)
         if self.door and self.door[0] in free:
             seen, todo = {self.door[0]}, [self.door[0]]
+            if not any(n in free and n not in self.door for t in self.door for n in ((t[0] + 1, t[1]), (t[0] - 1, t[1]), (t[0], t[1] + 1), (t[0], t[1] - 1))):
+                out.append("the entrance door opens onto a wall: the main area must reach the tile in front of it (%s side)" % self.side)
             while todo:
                 x, y = todo.pop()
                 for n in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
@@ -384,7 +503,8 @@ class Plan:
             for r in self.spec["rooms"]:
                 tiles = [t for t, o in self.owner.items() if o == r["id"] and t in free]
                 if tiles and not any(t in seen for t in tiles):
-                    out.append("room %s cannot be reached from the entrance" % r["id"])
+                    out.append("room %s cannot be reached from the entrance (furniture blocks the way in; its doorways are %s)"
+                               % (r["id"], " ".join("%d,%d" % tuple(d) for d in r.get("doors") or []) or "missing"))
         return out
 
     def jmp(self):
@@ -420,17 +540,20 @@ def color_texture_names(texs):
 class Builder:
     """paints the atlas and builds the mesh of a scene; `read` reads game files (models of `game` items)"""
 
-    def __init__(self, spec, read, assets=None):
+    def __init__(self, spec, read, assets=None, files=None):
         s = dict(SCENE_DEFAULT)
         s.update(spec)
         s["materials"] = dict(s.get("materials") or {})
         self.spec = s
         self.read = read
         self.assets = assets or (lambda name: None)       # asset name -> rows
+        self.files = files or getattr(assets, "bytes", None) or (lambda name: None)      # asset name -> bytes (3D models)
         self.plan = Plan(s)
         self.wall_h, self.part_h = float(s["wall_h"]), float(s["part_h"])
         self.notes = []
+        self.warnings = []
         self._models = {}
+        self._custom = {}
         self._collect()
 
     # ---- what the atlas must hold
@@ -456,8 +579,8 @@ class Builder:
             if r.get("floor"):
                 x0, y0, x1, y1 = r["rect"]
                 sizes["floor:" + r["id"]] = ((x1 - x0 + 1) * FLOOR_PX, (y1 - y0 + 1) * FLOOR_PX)
-            if r.get("label"):
-                sizes["sign:" + r["id"]] = (64, 16)
+            for name, _, width, _ in sign_regions(r):
+                sizes[name] = sign_px(r, width)
         sizes["trim"] = (16, 16)
         sizes["lip"] = (16, 16)
         sizes["_mirror"] = (16, 16)
@@ -471,6 +594,8 @@ class Builder:
                 raise SceneError("item %s uses the unknown palette %r" % (it.get("id", "?"), it.get("palette")))
             if it["type"] == "game":
                 self._game_sizes(it, sizes)
+            elif it["type"] == "custom":
+                self._custom_sizes(it, sizes)
         self.sizes = sizes
         self.pack = Packer(ATLAS_W, ATLAS_H)
         try:
@@ -503,6 +628,54 @@ class Builder:
     def _game_region(it, tn):
         rc = it.get("recolor")
         return "g:%s:%s:%s" % (it["path"], tn, "" if not rc else "%s/%s/%s" % (rc.get("h", 0), rc.get("s", 1), rc.get("v", 1)))
+
+    # ---- custom 3D models (Blender exports kept in the project's assets)
+    def _custom_model(self, it):
+        key = (it.get("asset"), it.get("up", "y"), bool(it.get("flip")))
+        if key not in self._custom:
+            if not key[0]:
+                raise SceneError("item %s: no model chosen" % it.get("id", "?"))
+            try:
+                self._custom[key] = models.load(key[0], self._model_fetch(key[0]), key[1], key[2])
+            except models.ModelError as e:
+                raise SceneError("model %s: %s" % (key[0], e))
+        return self._custom[key]
+
+    def _model_fetch(self, main):
+        return asset_fetch(main, self.files)
+
+    @staticmethod
+    def _custom_region(it, mi):
+        return "c:%s:%d:%d" % (it["asset"], mi, int(it.get("tex_cap", MODEL_CAP)))
+
+    def _custom_sizes(self, it, sizes):
+        m = self._custom_model(it)
+        cap = max(8, int(it.get("tex_cap", MODEL_CAP)))
+        for mi, _, _ in m.groups:
+            im = m.materials[mi].image
+            if im is None:
+                sizes["_white"] = (4, 4)
+                continue
+            w, h = im.size
+            k = min(1.0, cap / max(w, h))
+            sizes[self._custom_region(it, mi)] = (max(2, round(w * k)), max(2, round(h * k)))
+        for note in m.notes:
+            if note not in self.warnings:
+                self.warnings.append("%s: %s" % (it["asset"].split("__")[-1], note))
+
+    def _custom_rows(self, it, mi, size):
+        from PIL import Image
+        im = self._custom_model(it).materials[mi].image.resize(size, Image.LANCZOS)
+        px = im.load()
+        return [[px[x, y] for x in range(size[0])] for y in range(size[1])]
+
+    def custom(self, it):
+        m = self._custom_model(it)
+        for mi, verts, tris in m.groups:
+            mat = m.materials[mi]
+            region = self._custom_region(it, mi) if mat.image is not None else "_white"
+            importer.add_model(self.mesh, verts, tris, region, at=(it["x"], 0, it["z"]), rot=it.get("rot", 0),
+                               scale=float(it.get("scale", 1.0)), color=tuple(mat.color) + (1.0,))
 
     def _mat_rows(self, m):
         """pixels of an image material: a project PNG or a texture read from the player's own game dump"""
@@ -556,20 +729,25 @@ class Builder:
                 for y in range(y0, y1):
                     for x in range(x0, x1):
                         c.px[y][x] = list(tile[(y - y0) % FLOOR_PX][(x - x0) % FLOOR_PX])
-            if r.get("label"):
-                lc = r.get("label_colors") or {}
-                paint_prop(c, dict(preset="sign", text=r["label"], size=11,
-                                   colors={"c1": lc.get("fg", "#ffeef4"), "c2": lc.get("bg", "#784632"), "c3": lc.get("outline", "#78143c")}),
-                           R["sign:" + r["id"]])
+            for name, _, _, _ in sign_regions(r):
+                paint_sign(c, R[name], r)
         for pname, pal0 in self.spec["palettes"].items():
             pal = dict(BED_DEFAULT)
             pal.update(pal0)
             for part in BED_PARTS:
                 paint_bed_part(c, part, pal, R["bed:%s:%s" % (pname, part)])
+        if "_white" in R:
+            c.rect(R["_white"], (255, 255, 255, 255))
         for it in self.spec["items"]:
             if it["type"] == "game":
                 for region, rows in self._game_rows(it).items():
                     paste(c, rows, R[region])
+            elif it["type"] == "custom":
+                for mi, _, _ in self._custom_model(it).groups:
+                    if self._custom_model(it).materials[mi].image is not None:
+                        reg = self._custom_region(it, mi)
+                        x0, y0, x1, y1 = R[reg]
+                        paste(c, self._custom_rows(it, mi, (x1 - x0, y1 - y0)), R[reg])
         _gloss(c, 100)
         self.canvas = c
         return c
@@ -657,18 +835,21 @@ class Builder:
         for (x, y) in plan.doorway:
             m.quad((x * T, 0, (y + 1) * T), ((x + 1) * T, 0, (y + 1) * T), ((x + 1) * T, 0, y * T), (x * T, 0, y * T),
                    door_floor, normal=(0, 1, 0))
-        for x in range(GRID):
-            room = plan.owner.get((x, 0))
-            if room:
-                self.wall_quad(((x + 1) * T, 0), (x * T, 0), WALL_H, wall_region(room))
-        for y in range(GRID - 2):
-            for x, a, b in ((0, (0, y * T), (0, (y + 1) * T)), (GRID - 1, (GRID * T, (y + 1) * T), (GRID * T, y * T))):
+        bx0, by0, bx1, by1 = plan.bounds
+        door = set(plan.door)
+        for x in range(bx0, bx1 + 1):                           # back wall
+            room = plan.owner.get((x, by0))
+            if room and (x, by0 - 1) not in door:
+                self.wall_quad(((x + 1) * T, by0 * T), (x * T, by0 * T), WALL_H, wall_region(room))
+        for y in range(by0, by1 + 1):                           # side walls
+            for x, a, b, beyond in ((bx0, (bx0 * T, y * T), (bx0 * T, (y + 1) * T), (bx0 - 1, y)),
+                                    (bx1, ((bx1 + 1) * T, (y + 1) * T), ((bx1 + 1) * T, y * T), (bx1 + 1, y))):
                 room = plan.owner.get((x, y))
-                if room:
+                if room and beyond not in door:
                     self.wall_quad(a, b, WALL_H, wall_region(room))
         tpart = PART_H / WALL_H
-        for y in range(GRID - 2):
-            for x in range(GRID):
+        for y in range(by0, by1 + 1):
+            for x in range(bx0, bx1 + 1):
                 if not plan.wall((x, y)):
                     continue
                 faces = []
@@ -676,43 +857,53 @@ class Builder:
                 for (nx, ny), a, b in (((x, y + 1), (x0, z1), (x1, z1)), ((x, y - 1), (x1, z0), (x0, z0)),
                                        ((x - 1, y), (x0, z0), (x0, z1)), ((x + 1, y), (x1, z1), (x1, z0))):
                     room = plan.owner.get((nx, ny))
-                    if room and (nx, ny) != (x, GRID - 2):
+                    if room and bx0 <= nx <= bx1 and by0 <= ny <= by1 and (nx, ny) not in door:
                         faces.append(room)
                         self.wall_quad(a, b, PART_H, wall_region(room), tpart)
                 if faces:
                     m.quad((x0, PART_H, z1), (x1, PART_H, z1), (x1, PART_H, z0), (x0, PART_H, z0), "trim", normal=(0, 1, 0))
-        for r in self.spec["rooms"]:
-            doors = r.get("doors")
-            if not doors or not r.get("label"):
-                continue
-            xs = [d[0] for d in doors]
-            ys = [d[1] for d in doors]
-            x0, x1, z0, z1 = min(xs) * T, (max(xs) + 1) * T, min(ys) * T, (max(ys) + 1) * T
-            y0, y1 = PART_H, PART_H + 16
-            sign = "sign:" + r["id"]
-            if len(set(ys)) == 1:
-                m.box(x0, x1, y0, y1, z0 + 10, z1 - 10, {"front": sign, "back": "trim", "top": "trim", "bottom": "trim", "left": "trim", "right": "trim"})
-            else:
-                side = "right" if x0 < GRID * T / 2 else "left"
-                faces = {k: "trim" for k in ("front", "back", "top", "bottom", "left", "right")}
-                m.box(x0 + 10, x1 - 10, y0, y1, z0, z1, {k: v for k, v in faces.items() if k != side})
-                if side == "right":
-                    m.quad((x1 - 10, y0, z1), (x1 - 10, y0, z0), (x1 - 10, y1, z0), (x1 - 10, y1, z1), sign)
+        for r in self.spec["rooms"]:                            # a lintel with a sign over each doorway
+            for sign, grp, width, vertical in sign_regions(r):
+                xs, ys = [t[0] for t in grp], [t[1] for t in grp]
+                x0, x1, z0, z1 = min(xs) * T, (max(xs) + 1) * T, min(ys) * T, (max(ys) + 1) * T
+                y0, y1 = PART_H, PART_H + 16
+                if not vertical:
+                    m.box(x0, x1, y0, y1, z0 + 10, z1 - 10, {"front": sign, "back": "trim", "top": "trim", "bottom": "trim", "left": "trim", "right": "trim"})
                 else:
-                    m.quad((x0 + 10, y0, z0), (x0 + 10, y0, z1), (x0 + 10, y1, z1), (x0 + 10, y1, z0), sign)
+                    side = "right" if x0 < GRID * T / 2 else "left"
+                    faces = {k: "trim" for k in ("front", "back", "top", "bottom", "left", "right")}
+                    m.box(x0 + 10, x1 - 10, y0, y1, z0, z1, {k: v for k, v in faces.items() if k != side})
+                    if side == "right":
+                        m.quad((x1 - 10, y0, z1), (x1 - 10, y0, z0), (x1 - 10, y1, z0), (x1 - 10, y1, z1), sign)
+                    else:
+                        m.quad((x0 + 10, y0, z0), (x0 + 10, y0, z1), (x0 + 10, y1, z1), (x0 + 10, y1, z0), sign)
         for (x, y) in plan.link:                # doormats on the link tiles
             self.flat(x * T + 3, y * T + 3, (x + 1) * T - 3, (y + 1) * T - 3, "_link", y=0.7)
-        dxs = sorted(t[0] for t in plan.door)
-        gap0, gap1 = (dxs[0] * T, (dxs[-1] + 1) * T) if dxs else (0, 0)
-        for x0, x1 in ((0, gap0), (gap1, GRID * T)):
-            if x1 > x0:
-                m.quad((x0, -16, 448), (x1, -16, 448), (x1, 0, 448), (x0, 0, 448), "lip")
+        if plan.side == "south":
+            dxs = sorted(t[0] for t in plan.door)
+            gap0, gap1 = (dxs[0] * T, (dxs[-1] + 1) * T) if dxs else (0, 0)
+            for x0, x1 in ((0, gap0), (gap1, GRID * T)):
+                if x1 > x0:
+                    m.quad((x0, -16, 448), (x1, -16, 448), (x1, 0, 448), (x0, 0, 448), "lip")
+        else:                                   # the front stays closed; a mat in the doorway on the side
+            m.quad((0, -16, 448), (GRID * T, -16, 448), (GRID * T, 0, 448), (0, 0, 448), "lip")
+            for (x, y) in plan.door:
+                self.flat(x * T, y * T, (x + 1) * T, (y + 1) * T, "trim", y=0.0)
 
     # ---- items
     def _tiles_world(self, tile):
         return ((tile[0] + 0.5) * TILE, (tile[1] + 0.5) * TILE)
 
     def add_item(self, it):
+        n0 = len(self.mesh.verts)
+        self._add_item(it)
+        lift = float(it.get("lift") or 0)
+        if lift:                                # raised above (or sunk into) the floor
+            for v in self.mesh.verts[n0:]:
+                p = v["pos"]
+                v["pos"] = (p[0], p[1] + lift, p[2])
+
+    def _add_item(self, it):
         t, m = it["type"], self.mesh
         R = self.reg
         if t == "box":
@@ -743,6 +934,8 @@ class Builder:
             self.stand(it)
         elif t == "game":
             self.game(it)
+        elif t == "custom":
+            self.custom(it)
         else:
             raise SceneError("unknown item type %r" % t)
         if it.get("block"):
@@ -821,15 +1014,28 @@ class Builder:
                 raise
             except KeyError as e:
                 raise SceneError("item %s (%s): missing field %s" % (it.get("id", "?"), it["type"], e))
-        problems = self.plan.problems()
+        problems = self.plan.problems() + self.budget()
         if problems:
             raise SceneError("; ".join(problems))
         self.mesh.weld()
         return self
 
+    MAX_VERTS = 60000                               # the room is one mesh with 16-bit indices
 
-def build_scene(spec, read, assets=None):
-    return Builder(spec, read, assets).build()
+    def budget(self):
+        """errors about the size of the mesh (and warnings, in self.warnings, when it gets heavy)"""
+        n, tris = len(self.mesh.verts), len(self.mesh.tris) // 3
+        msg = "%d triangles" % tris
+        self.warnings = [w for w in self.warnings if "triangles" not in w]
+        if n > self.MAX_VERTS:
+            return ["the room has too many vertices (%d, at most %d): simplify the custom models (Blender: Decimate modifier)" % (n, self.MAX_VERTS)]
+        if tris > 20000:
+            self.warnings.append("%s: heavy for a 3DS; expect slowdowns (Blender: Decimate the models)" % msg)
+        return []
+
+
+def build_scene(spec, read, assets=None, files=None):
+    return Builder(spec, read, assets, files).build()
 
 
 # =============================================================== the room model file

@@ -23,7 +23,7 @@ Environment: `ACNL_RECOMP`, `ACNL_ROM`, `ACNL_BIN` (the game executable for "Ins
 | **Villagers** | rename a villager, new catch phrase | `STR_NNpc_name` / `STR_NNpc_habit` |
 | **Textures** | pixel editor + UV layout + 3D preview for any texture of any game model: villager skins, **clothes** (tops, bottoms, hats, shoes, socks… shown on the player model), furniture, buildings | the texture is re-encoded in its own format (ETC1/ETC1A4/RGBA4/… with mip maps) |
 | **Buildings** | new town buildings: parametric exterior (3 presets, roof/walls/door/windows/ornament/sign, every colour), paint-over layer, name per language, map icon, position | a real building in the town (new and existing towns), its model/textures/data under `/Strc/sobj/<name>/` |
-| **Interiors** | 16 × 16 plan editor + live 3D: rooms, doorways, floors/walls from presets or hand-drawn, boxes/cylinders/rugs/tubs/beds/lamps, any game furniture, collision | the room model of Nook's Homes replaced only while inside your building, with its collision grid |
+| **Interiors** | 16 × 16 plan editor + live 3D: rooms, doorways (with signs: your own text, colours, font), a door on any edge, doors that cross into other rooms (two-way), floors/walls from presets or hand-drawn, boxes/cylinders/rugs/tubs/beds/lamps, any game furniture, **your own 3D models** (glTF/GLB, OBJ+MTL, STL, PLY from Blender), items can be raised/lowered, collision | the room model of Nook's Homes replaced only while inside your building, with its collision grid |
 | **Events** | scripted conversations when the player walks in (Tom Nook presents the place…), goodbye line | the character's "enter" flow is rewritten, only inside that building |
 | **Export** | builds, warns (text too long, …), installs, starts the game | `<project>.acmod` |
 
@@ -55,6 +55,12 @@ tests/                 unit tests (need the dump)
 * **Events** are conversations bound to your buildings; triggers by date/time, items, quests would need more of the
   game's scripting (flows) mapped; the original `recomp/mods/baisodrome` plugin keeps a function-call probe (`BAISO_PROBE`) useful for that.
 * Atlas budget: an interior has one 512 × 512 texture; the Interiors tab shows how much is used.
+* **Custom 3D models** are kept in the project (`assets/mdl_<name>__<file>`), measured on import and baked into the room mesh like any other
+  furniture: textures go into the atlas (`Texture detail` caps their size), materials without a texture use their base colour. Export glTF 2.0 (`.glb`)
+  from Blender for the least fuss; OBJ needs its `.mtl` and images selected together. Keep models small (a few thousand triangles; the Interiors tab warns).
+  Animations, skinning, FBX and DAE are not supported.
+* **The entrance** can be on any edge (Interiors → nothing selected, or the Areas tab). Rooms with a door that is not on the south edge also write an
+  `entry = x, z, yaw` line so the runtime plugin puts the player in front of that door; that part is **not yet verified in game**.
 
 ## Copyright
 

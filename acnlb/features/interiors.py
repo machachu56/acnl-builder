@@ -9,10 +9,11 @@ import os
 from .. import env, interior, project, rom
 from . import textures as texmod
 
-YAW = {"south": 0, "east": 16384, "north": 32768, "west": 49152}        # the direction the player looks on arrival
+YAW = interior.YAW                                                      # the direction the player looks on arrival
 
 
 def asset_loader(proj):
+    """asset name -> pixels of a PNG; `.bytes(name)` -> the raw file (3D models and what they refer to)"""
     cache = {}
 
     def load(name):
@@ -22,6 +23,17 @@ def asset_loader(proj):
                 raise interior.SceneError("missing image asset %s" % name)
             cache[name] = texmod.load_png(f)
         return cache[name]
+
+    def raw(name):
+        try:
+            f = project.asset_path(proj["id"], name)
+        except ValueError:
+            return None
+        if not os.path.isfile(f):
+            return None
+        with open(f, "rb") as fp:
+            return fp.read()
+    load.bytes = raw
     return load
 
 
@@ -95,7 +107,11 @@ def compile(b):
                     links.append("%d, %d, %d, %d, %d, %d" % (x, y, index[lk["to"]], ax, ay, YAW.get(lk.get("face", "north"), 32768)))
             if len(links) > 8:
                 raise ValueError("interior %s: at most 8 link tiles per room (has %d)" % (spec["id"], len(links)))
-            cfg_pages.append({"variant": var, "jmp": name, "links": links})
+            page = {"variant": var, "jmp": name, "links": links}
+            if k == 0 and bt.plan.spawn:                  # an entrance that is not on the south edge: say where the player appears
+                sx, sz, yaw = bt.plan.spawn
+                page["entry"] = "%d, %d, %d" % (sx, sz, yaw)
+            cfg_pages.append(page)
             b.note("room %s: %d vertices, %d triangles" % (spec["id"], len(bt.mesh.verts), len(bt.mesh.tris) // 3))
         for entry in b.cfg["buildings"]:
             if entry["id"] == bld["id"]:

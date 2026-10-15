@@ -18,10 +18,12 @@ _font_cache = {}
 
 
 def font_path(name=None):
-    """a font file: `name` (a path or a family-ish substring) or the first bold serif/sans found"""
+    """a font file: `name` (a path, a name from list_fonts() or a family-ish substring) or the first bold serif/sans found"""
     if name and os.path.isfile(name):
         return name
-    pats = ["/usr/share/fonts/**/*%s*" % name] if name else []
+    if name and name in list_fonts():
+        return list_fonts()[name]
+    pats = ["/usr/share/fonts/**/*%s*" % glob.escape(name)] if name else []
     for pat in pats + _FONT_GLOBS:
         hits = sorted(glob.glob(pat, recursive=True))
         hits = [h for h in hits if h.lower().endswith((".ttf", ".otf"))]
@@ -30,11 +32,18 @@ def font_path(name=None):
     return None
 
 
+_fonts_listed = None
+
+
 def list_fonts():
-    out = {}
-    for f in glob.glob("/usr/share/fonts/**/*.[to]tf", recursive=True) + glob.glob("C:/Windows/Fonts/*.ttf"):
-        out[os.path.splitext(os.path.basename(f))[0]] = f
-    return dict(sorted(out.items()))
+    global _fonts_listed
+    if _fonts_listed is None:
+        out = {}
+        for f in (glob.glob("/usr/share/fonts/**/*.[to]tf", recursive=True) + glob.glob("C:/Windows/Fonts/*.ttf")
+                  + glob.glob("/Library/Fonts/*.ttf") + glob.glob("/System/Library/Fonts/Supplemental/*.ttf")):
+            out[os.path.splitext(os.path.basename(f))[0]] = f
+        _fonts_listed = dict(sorted(out.items()))
+    return _fonts_listed
 
 
 def _font(size, name=None):
@@ -49,20 +58,71 @@ def _font(size, name=None):
     return _font_cache[key]
 
 
+def _ink(s, f, stroke=0):
+    """(width, height) of the ink of (possibly several lines of) text"""
+    from PIL import Image, ImageDraw
+    d = ImageDraw.Draw(Image.new("L", (1, 1)))
+    b = d.multiline_textbbox((0, 0), s, font=f, align="center", stroke_width=stroke)
+    return b[2] - b[0], b[3] - b[1]
+
+
+def fit_text(s, w, h, font=None, max_size=14, min_size=5, pad=0.0):
+    """(text with line breaks, size) of the biggest lettering that fits w x h pixels: one line if it reads well,
+    else the text is broken over two or three lines at the spaces; it is shrunk, never stretched"""
+    words = s.split()
+    options = [s] if "\n" in s else []
+    if not options:
+        options = [" ".join(words)]
+        for n in (2, 3):
+            if len(words) >= n:
+                best = None
+                for cuts in _splits(len(words), n):
+                    lines = [" ".join(words[a:b]) for a, b in zip((0,) + cuts, cuts + (len(words),))]
+                    score = max(len(x) for x in lines)
+                    if best is None or score < best[0]:
+                        best = (score, "\n".join(lines))
+                options.append(best[1])
+    best = (None, 0.0)
+    for text in options:
+        lines = text.count("\n") + 1
+        size = max_size
+        while size >= min_size:
+            iw, ih = _ink(text, _font(size, font), int(pad * 4))
+            if iw <= w * 4 * 0.94 and ih <= h * 4 * 0.9:
+                break
+            size -= 0.5
+        size = max(size, min_size)
+        # prefer fewer lines unless a split makes the letters clearly larger
+        if best[0] is None or size > best[1] * 1.1:
+            best = (text, size)
+    return best
+
+
+def _splits(n, k):
+    """cut positions that split n words in k groups"""
+    import itertools
+    return [c for c in itertools.combinations(range(1, n), k - 1)]
+
+
 class Canvas(_Canvas):
-    def text(self, s, r, color, font=None, size=14, outline=None, outline_w=1.5):
-        """lettering centred in rect r (drawn at 4x and reduced, so it is smooth)"""
+    def text(self, s, r, color, font=None, size=14, outline=None, outline_w=1.5, fit=False):
+        """lettering centred in rect r (drawn at 4x and reduced, so it is smooth).
+        fit: shrink the lettering (and break it over lines) until it fits r, instead of overflowing it"""
         from PIL import Image, ImageDraw
         x0, y0, x1, y1 = r
         w, h = int(x1 - x0), int(y1 - y0)
         if w <= 0 or h <= 0 or not s:
             return
-        f = _font(size, font if not (font or "").startswith("DejaVu-") else None)
+        font = font if not (font or "").startswith("DejaVu-") else None
+        if fit:
+            s, size = fit_text(s, w - 2 * outline_w * (1 if outline else 0), h, font, max_size=size,
+                               pad=outline_w if outline else 0)
+        f = _font(size, font)
         layers = []
         for stroke in ((outline_w if outline else 0), 0):
             im = Image.new("L", (w * 4, h * 4), 0)
-            ImageDraw.Draw(im).text((w * 2, h * 2), s, fill=255, font=f, anchor="mm",
-                                    stroke_width=int(stroke * 4), stroke_fill=255)
+            ImageDraw.Draw(im).multiline_text((w * 2, h * 2), s, fill=255, font=f, anchor="mm", align="center",
+                                              stroke_width=int(stroke * 4), stroke_fill=255)
             layers.append(im.resize((w, h), Image.LANCZOS).load())
         for m, col in ((layers[0], outline), (layers[1], color)):
             if col is None:
