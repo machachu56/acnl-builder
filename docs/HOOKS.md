@@ -49,12 +49,20 @@ and only then change them. See [SCRIPTING.md](SCRIPTING.md). If the address is n
 
 ## Spawning extra actors (`add_actor`)
 
-The game spawns actors through one function (`0x51ef80`): `spawn(manager, &spawn_struct, r2, r3, stack...)`, whose struct starts with the
-u16 profile. A plugin cannot call game functions, so the runtime gained `acnl_call_again` (in `mods/sdk/acnl_mod.h`): from a hook's pre, the
-hooked function is run once more with other r0-r3 and a copy of the original stack arguments, then the original call goes on. `@on_spawn(X)` +
-`add_actor(Y, x, y)` uses it: when the game spawns X, the plugin copies the spawn struct, writes Y's profile, and re-issues the call, so Y is
-created in the same phase as the game's own characters (before the model-loading batch) and is then moved to the tile.
-`python3 -m acnlb probe --spawns` logs the struct and arguments of every spawn: the way to find the fields that choose a villager.
+The game spawns actors through one function (`0x51ef80`): `spawn(manager, &profile_record, r2, r3, stack...)`. From a probe log of the real game
+(`python3 -m acnlb probe --spawns`):
+
+* **r1** points into a table of 12-byte records, one per profile, each starting with the profile number: the record of profile *p* is at
+  `0x952FB0 + 12 * p` (Isabelle, 454: `0x9544f8`; Tom Nook, 492: `0x9546c0`).
+* **r3** points at a character's parameter block + 0x20; the block holds its place: x at `+0x0C`, y `+0x10`, z `+0x14` (Tom Nook: 288, 32, 400;
+  Isabelle at the town hall: 256, 32, 304) and an angle at `+0x18`.
+* The **stack** holds copies of the profile and of r3 (the callee reads them).
+
+A plugin cannot call game functions, so the runtime gained `acnl_call_again` / `acnl_call_again_patched` (`mods/sdk/acnl_mod.h`): from a hook's pre, the
+hooked function is run once more with other r0-r3 and a copy of the original stack arguments (words equal to given values replaced), then the original
+call goes on. `@on_spawn(X)` + `add_actor(Y, x, y)` uses it: when the game spawns X, the plugin runs the same spawn again with Y's own record, a copy of
+X's parameter block with the tile written in, and the stack copies changed to match, so Y is created in the same phase as the game's own characters
+(before the model-loading batch). A first attempt that kept X's record and block produced X's model and place (Tom Nook where Isabelle was asked for).
 
 ## What the plugin hooks by itself
 

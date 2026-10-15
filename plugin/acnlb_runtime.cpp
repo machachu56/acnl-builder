@@ -581,37 +581,41 @@ int hook_script_call_pre(void *user) {
    with the u16 profile. For an @on_spawn trigger the plugin asks the runtime to run the same call again with a copy of the struct
    holding another profile (call_again), so the extra actor is created in the same phase as the game's own: its model loads with theirs. */
 const uint32_t FN_SPAWN = 0x51ef80;
-uint32_t g_clone[MAX_ADDS];                 /* guest copies of the spawn struct */
+/* what a spawn call carries (read from a game log):
+   r1  -> the profile's record in a table of 12-byte records starting with the profile number: entry(p) = PROFILE_TABLE + 12 * p
+   r3  -> a parameter block + 0x20; the block holds the character's place: x at +0x0C, y at +0x10, z at +0x14 (and an angle at +0x18)
+   the stack holds copies of the profile and of r3.  An extra spawn uses the new profile's own record, a block of its own with the
+   tile in it, and the stack copies changed to match. */
+const uint32_t PROFILE_TABLE = 0x952FB0;
+uint32_t g_param[MAX_ADDS];                 /* guest copies of the parameter block */
 AddReq g_adds_run[MAX_ADDS];
 int hook_spawn_pre(void *) {
     if (!g_scripts) return ACNL_CONTINUE;
-    uint32_t desc = acnl_reg(1);
-    if (desc < 0x100000) return ACNL_CONTINUE;
+    uint32_t desc = acnl_reg(1), r3 = acnl_reg(3);
+    if (desc < 0x100000 || r3 < 0x100020) return ACNL_CONTINUE;
     uint32_t prof = acnl_rd16(desc);
     memset(&g_sc, 0, sizeof g_sc);
     g_nadds = 0;
     script_fire(sv::K_SPAWN, nullptr, nullptr, prof);
     for (int k = 0; k < g_nadds; k++) {
-        if (!g_clone[k]) g_clone[k] = acnl_alloc(0x100, 4);
-        if (!g_clone[k]) break;
-        uint8_t buf[0x100];
-        if (acnl_read(desc, buf, sizeof buf) != 0) break;
-        buf[0] = (uint8_t)(g_adds[k].profile & 0xFF); buf[1] = (uint8_t)(g_adds[k].profile >> 8);
-        acnl_write(g_clone[k], buf, sizeof buf);
+        uint32_t rec = PROFILE_TABLE + 12 * g_adds[k].profile;
+        if (acnl_rd16(rec) != g_adds[k].profile) { acnl_log("script: no profile record for actor %u: not spawned", (unsigned)g_adds[k].profile); continue; }
+        if (!g_param[k]) g_param[k] = acnl_alloc(0x80, 4);
+        uint8_t buf[0x40];
+        if (!g_param[k] || acnl_read(r3 - 0x20, buf, sizeof buf) != 0) continue;
+        float x = g_adds[k].tx * (float)TILE + TILE / 2.0f, z = g_adds[k].tz * (float)TILE + TILE / 2.0f;
+        memcpy(buf + 0x0C, &x, 4);
+        memcpy(buf + 0x14, &z, 4);
+        acnl_write(g_param[k], buf, sizeof buf);
         g_adds_run[k] = g_adds[k];
         acnl_log("script: spawning actor %u next to %u (tile %d,%d)", (unsigned)g_adds[k].profile, (unsigned)prof, g_adds[k].tx, g_adds[k].tz);
-        acnl_call_again(100 + (uint32_t)k, acnl_reg(0), g_clone[k], acnl_reg(2), acnl_reg(3));
+        acnl_call_again_patched(100 + (uint32_t)k, acnl_reg(0), rec, acnl_reg(2), g_param[k] + 0x20, prof, g_adds[k].profile, r3, g_param[k] + 0x20);
     }
     return ACNL_CONTINUE;
 }
 extern "C" ACNL_EXPORT("acnl_mod_call_done") void acnl_mod_call_done(uint32_t id, uint32_t result) {
     if (id < 100 || id >= 100 + MAX_ADDS) return;
-    const AddReq &r = g_adds_run[id - 100];
-    acnl_log("script: the extra actor %u was created: object %08x", (unsigned)r.profile, (unsigned)result);
-    if (result < 0x100000) return;
-    float x = r.tx * (float)TILE + TILE / 2.0f, z = r.tz * (float)TILE + TILE / 2.0f;
-    uint32_t base[2] = {0x14, 0x20};
-    for (int i = 0; i < 2; i++) { acnl_write(result + base[i], &x, 4); acnl_write(result + base[i] + 8, &z, 4); }
+    acnl_log("script: the extra actor %u was created: object %08x", (unsigned)g_adds_run[id - 100].profile, (unsigned)result);
 }
 
 void load_scripts() {
