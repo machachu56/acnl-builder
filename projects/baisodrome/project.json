@@ -1,7 +1,7 @@
 {
  "format": 1,
  "id": "baisodrome",
- "title": "Baisodrome",
+ "title": "Baisodrome Test",
  "author": "",
  "description": "",
  "version": "1.0",
@@ -22,7 +22,8 @@
    "hide_furniture": true,
    "style": {
     "base": "policeB",
-    "overlay": "baisodrome_overlay.png"
+    "overlay": "baisodrome_overlay.png",
+    "ornament": "heart"
    },
    "map_name": {
     "en": "Sex Hotel",
@@ -811,10 +812,10 @@
     {
      "id": "i15",
      "type": "flat",
-     "x0": 214,
-     "z0": 344,
-     "x1": 302,
-     "z1": 404,
+     "x0": 150,
+     "z0": 232,
+     "x1": 238,
+     "z1": 292,
      "mat": "rug_love",
      "y": 0.4
     },
@@ -1879,7 +1880,214 @@
      "mat": "condom",
      "y": 0.5
     }
+   ],
+   "links": [
+    {
+     "id": "link1",
+     "tiles": [
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       4
+      ]
+     ],
+     "to": "interior1",
+     "arrive": [
+      12,
+      8
+     ],
+     "face": "west"
+    }
    ]
+  },
+  {
+   "id": "interior1",
+   "title": "Lovely Room",
+   "main": "main",
+   "materials": {
+    "floor_main": {
+     "type": "floor",
+     "preset": "carpet"
+    },
+    "wall_main": {
+     "type": "wall",
+     "preset": "plain"
+    },
+    "wood": {
+     "type": "prop",
+     "preset": "wood",
+     "colors": {
+      "c1": "#a87a4a",
+      "c2": "#6e4a2a"
+     },
+     "size": [
+      16,
+      16
+     ]
+    },
+    "fabric": {
+     "type": "prop",
+     "preset": "fabric",
+     "colors": {
+      "c1": "#c8506a",
+      "c2": "#a03050"
+     },
+     "size": [
+      16,
+      16
+     ]
+    },
+    "white": {
+     "type": "prop",
+     "preset": "solid",
+     "colors": {
+      "c1": "#f4f0ea"
+     },
+     "size": [
+      16,
+      16
+     ]
+    },
+    "dark": {
+     "type": "prop",
+     "preset": "solid",
+     "colors": {
+      "c1": "#2a2226"
+     },
+     "size": [
+      16,
+      16
+     ]
+    },
+    "gold": {
+     "type": "prop",
+     "preset": "gradient",
+     "colors": {
+      "c1": "#ffe68c",
+      "c2": "#c8963c"
+     },
+     "size": [
+      16,
+      16
+     ]
+    },
+    "floor_room1": {
+     "type": "floor",
+     "preset": "planks"
+    },
+    "wall_room1": {
+     "type": "wall",
+     "preset": "plain"
+    }
+   },
+   "palettes": {},
+   "rooms": [
+    {
+     "id": "main",
+     "name": "Hub Lovely",
+     "rect": [
+      3,
+      4,
+      12,
+      13
+     ],
+     "floor": "floor_main",
+     "wall": "wall_main",
+     "doors": []
+    },
+    {
+     "id": "room1",
+     "name": "Room 1",
+     "rect": [
+      5,
+      0,
+      10,
+      2
+     ],
+     "floor": "floor_room1",
+     "wall": "wall_room1",
+     "doors": [
+      [
+       7,
+       3
+      ],
+      [
+       8,
+       3
+      ]
+     ],
+     "label": "This is a textaaaa"
+    }
+   ],
+   "items": [
+    {
+     "type": "game",
+     "path": "/Item/Model/rmk_apl_clockN_mtl.bcres",
+     "x": 312,
+     "z": 128,
+     "rot": 0,
+     "scale": 1,
+     "tex_cap": 64,
+     "fp": [
+      26,
+      18
+     ],
+     "id": "g1",
+     "block": [
+      [
+       9,
+       4
+      ]
+     ],
+     "recolor": {
+      "h": 0
+     }
+    },
+    {
+     "type": "game",
+     "path": "/Item/Model/int_gor_bedW.bcres",
+     "x": 256,
+     "z": 48,
+     "rot": 0,
+     "scale": 1,
+     "tex_cap": 64,
+     "fp": [
+      62,
+      57
+     ],
+     "id": "g5",
+     "block": [
+      [
+       7,
+       0
+      ],
+      [
+       8,
+       0
+      ],
+      [
+       7,
+       1
+      ],
+      [
+       8,
+       1
+      ],
+      [
+       7,
+       2
+      ],
+      [
+       8,
+       2
+      ]
+     ]
+    }
+   ],
+   "links": []
   }
  ],
  "events": [
@@ -1901,5 +2109,14 @@
     "fr": "{3.1:}Merci, et à très bientôt au\nBaisodrome, hm ?"
    }
   }
- ]
+ ],
+ "scripts": [
+  {
+   "id": "night_shift",
+   "name": "Isabelle's night shift",
+   "enabled": false,
+   "code": "\"\"\"Isabelle's night shift: after hours she is not at work; she is at the Baisodrome instead.\n\nThree things happen, each is a trigger:\n  * at the town hall (and anywhere else the game creates her) she is not created between 22:00 and 06:00;\n  * the Baisodrome's counter, where Tom Nook usually stands, shows her instead during those hours;\n  * when the shift starts again she is back at work, in her work clothes.\n\n\"Isabelle\" and \"Tom Nook\" are actors: give each a profile number in Scripts > Actors (the probe tells you which,\nsee docs/HOOKS.md). \"work_clothes\" is an outfit you made in the Villagers tab.\n\"\"\"\nfrom acnl import *\n\nSTART = \"06:00\"\nEND = \"22:00\"\n\n\ndef after_hours():\n    return time_between(END, START)\n\n\n@on_actor(\"Isabelle\")\ndef isabelle_is_not_at_work():\n    if after_hours():\n        hide_actor()\n    else:\n        wear(\"sza\", \"work_clothes\")\n\n\n@on_actor(\"Tom Nook\")\ndef isabelle_covers_the_counter():\n    if in_building(\"baisodrome\") and after_hours():\n        become(\"Isabelle\")\n"
+  }
+ ],
+ "actors": {}
 }
