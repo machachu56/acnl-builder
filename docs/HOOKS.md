@@ -91,7 +91,11 @@ Real runs, recorded so nobody repeats them (the builder refuses these):
 * **`become("Isabelle")` outside the town hall.** `AcNpcSpSecretaryIn` was created in the Baisodrome (scene 65) and the game
   stopped with a memory fault at `0x6aa540` (a method of `NpcModel`, reading through a null model pointer). The class is built to
   run inside the town hall and needs data only that place sets up. Tom Nook, Honma and Takumi *did* work there, because that place
-  is theirs. So a character can only be created where the game already prepares them; what can be swapped safely is
+  is theirs.
+  **What the run log (`ACNL_FSLOG=1`) shows:** the game creates the characters of a place first and then loads their model files in one batch.
+  In the town hall Isabelle is created *before* that batch (her model loads with it); in the hotel the spare furniture slot comes *after* the batch
+  (the three counter characters had been created before it), so her model was never requested. The remedy being tried: create her in one of the three
+  counter slots (which is before the batch). A second suspect, if that is not enough: the town hall also creates `BsStrcCatalog` (profile 160) just before her. So a character can only be created where the game already prepares them; what can be swapped safely is
   the *look and lines* of the three that exist there (outfits, conversations), not the class.
 
 ## Classes worth probing for the things people ask for
