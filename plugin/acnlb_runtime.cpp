@@ -408,7 +408,9 @@ int g_probe_spawn_n = 0;
 int hook_probe_spawn_pre(void *) {
     uint32_t desc = acnl_reg(1), sp = acnl_reg(13);
     uint32_t prof0 = desc >= 0x100000 ? acnl_rd16(desc) : 0;
+    push(s_probe_spawn, prof0);
     if (prof0 < 380 || prof0 > 560) return ACNL_CONTINUE;                 /* the characters (AcNpc*) only */
+    if (acnl_reg(2) >= 0x100000 && (prof0 == 454 || prof0 == 492)) probe_dump("spawn-r2", acnl_reg(2), prof0);
     if (g_probe_spawn_n++ >= 300) return ACNL_CONTINUE;
     uint32_t w[64] = {0}, s[8] = {0};
     if (desc >= 0x100000) acnl_read(desc, w, sizeof w);
@@ -419,6 +421,22 @@ int hook_probe_spawn_pre(void *) {
         acnl_log("probe: spawn-desc+%02x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x", k * 4, (unsigned)w[k], (unsigned)w[k+1], (unsigned)w[k+2], (unsigned)w[k+3], (unsigned)w[k+4], (unsigned)w[k+5], (unsigned)w[k+6], (unsigned)w[k+7], (unsigned)w[k+8], (unsigned)w[k+9], (unsigned)w[k+10], (unsigned)w[k+11], (unsigned)w[k+12], (unsigned)w[k+13], (unsigned)w[k+14], (unsigned)w[k+15]);
     acnl_log("probe: spawn-stack %08x %08x %08x %08x %08x %08x %08x %08x", (unsigned)s[0], (unsigned)s[1], (unsigned)s[2], (unsigned)s[3], (unsigned)s[4], (unsigned)s[5], (unsigned)s[6], (unsigned)s[7]);
     return ACNL_CONTINUE;
+}
+/* an actor's memory after the game has finished setting it up: comparing a genuine character with a spawned copy shows which
+   fields hold its identity (model, NPC id) and its place */
+void probe_dump(const char *what, uint32_t obj, uint32_t prof) {
+    if (obj < 0x100000) return;
+    uint32_t w[128];
+    if (acnl_read(obj, w, sizeof w) != 0) return;
+    for (int k = 0; k < 128; k += 16)
+        acnl_log("probe: %s %u +%03x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x", what, (unsigned)prof, k * 4,
+                 (unsigned)w[k], (unsigned)w[k+1], (unsigned)w[k+2], (unsigned)w[k+3], (unsigned)w[k+4], (unsigned)w[k+5], (unsigned)w[k+6], (unsigned)w[k+7],
+                 (unsigned)w[k+8], (unsigned)w[k+9], (unsigned)w[k+10], (unsigned)w[k+11], (unsigned)w[k+12], (unsigned)w[k+13], (unsigned)w[k+14], (unsigned)w[k+15]);
+}
+Saved s_probe_spawn;
+void hook_probe_spawn_post(void *) {
+    uint32_t prof = pop(s_probe_spawn), obj = acnl_reg(0);
+    if (prof == 454 || prof == 492 || prof == 419 || prof == 500) probe_dump("spawned", obj, prof);
 }
 Saved s_probe_actor;
 int g_probe_actor_n = 0;
@@ -616,6 +634,7 @@ int hook_spawn_pre(void *) {
 extern "C" ACNL_EXPORT("acnl_mod_call_done") void acnl_mod_call_done(uint32_t id, uint32_t result) {
     if (id < 100 || id >= 100 + MAX_ADDS) return;
     acnl_log("script: the extra actor %u was created: object %08x", (unsigned)g_adds_run[id - 100].profile, (unsigned)result);
+    probe_dump("added", result, g_adds_run[id - 100].profile);         /* (few lines, only when a character is added)  */
 }
 
 void load_scripts() {
@@ -868,7 +887,7 @@ extern "C" int acnl_mod_init(void) {
     if (any_links && acnl_hook(FN_ACTOR_CREATE, hook_actor_track_pre, hook_actor_track_post, nullptr) != 0) return -1;
     for (int i = 0; i < g_nprobe; i++)
         if (acnl_hook(g_probe[i].addr, hook_probe, nullptr, (void *)(intptr_t)i) != 0) acnl_log("probe: cannot hook %#x (%s)", (unsigned)g_probe[i].addr, g_probe[i].label);
-    if (g_probe_spawns && acnl_hook(0x51ef80, hook_probe_spawn_pre, nullptr, nullptr) != 0) acnl_log("probe: cannot hook the spawn function");
+    if (g_probe_spawns && acnl_hook(0x51ef80, hook_probe_spawn_pre, hook_probe_spawn_post, nullptr) != 0) acnl_log("probe: cannot hook the spawn function");
     if (g_probe_actors && acnl_hook(FN_ACTOR_CREATE, hook_probe_actor_pre, hook_probe_actor_post, nullptr) != 0) return -1;
     if (g_scripts) {
         bool actors = false;
