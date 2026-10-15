@@ -53,6 +53,8 @@ def compile_outfits(b):
             b.cfg.setdefault("outfits", []).append({"villager": v["id"], "id": o["id"], "model": model, "variant": var})
             if v.get("default_outfit") != o["id"]:
                 unused.append("%s/%s" % (v["id"], o["id"]))
+    if any("wear(" in (sc.get("code") or "") and sc.get("enabled", True) for sc in b.proj.get("scripts", [])):
+        unused = []                                   # a script dresses them
     if unused:
         b.warn("outfits %s are in the mod but nothing wears them yet: only the default outfit shows until a script swaps one in" % ", ".join(unused))
 

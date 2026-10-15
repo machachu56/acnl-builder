@@ -67,7 +67,7 @@ def build(proj, only=None):
 
 
 def plugin_needed(b):
-    return bool(b.cfg["buildings"] or b.cfg["events"] or b.cfg.get("hooks"))
+    return bool(b.cfg["buildings"] or b.cfg["events"] or b.cfg.get("hooks") or b.cfg.get("scripts"))
 
 
 # ------------------------------------------------------------------ the runtime plugin

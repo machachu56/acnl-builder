@@ -316,6 +316,37 @@ def int_presets(req, q):
     return {"floor": interior.FLOOR_PRESETS, "wall": interior.WALL_PRESETS, "bed": interior.BED_DEFAULT}
 
 
+# ---- scripts
+@route("POST", "/api/script/check")
+def script_check(req, q):
+    """check one script (or all of them) against the saved project; the browser saves before asking"""
+    from .script import check, context
+    b = req.json()
+    proj = project.load(b["project"])
+    res = check(b.get("source") or "", context.build_ctx(proj))
+    res.pop("program", None)
+    return res
+
+
+@route("GET", "/api/script/reference")
+def script_reference(req, q):
+    from .script import docs
+    return docs.reference()
+
+
+@route("POST", "/api/script/examples")
+def script_examples(req, q):
+    from .script import docs
+    b = req.json()
+    return docs.examples(project.load(b["project"]) if b.get("project") else None)
+
+
+@route("GET", "/api/script/stub")
+def script_stub(req, q):
+    from .script import docs
+    return ("text/x-python", docs.stub().encode())
+
+
 @route("GET", "/api/fonts")
 def fonts(req, q):
     return list(paintx.list_fonts())

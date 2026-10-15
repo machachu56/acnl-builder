@@ -89,6 +89,11 @@ def villagers():
         sp = re.match(r"[a-z]+", label).group(0)
         out.append({"id": label, "name": name, "species": SPECIES.get(sp, sp), "catchphrase": by_habit.get(label, ""),
                     "model": model})
+    # the special characters (shopkeepers, the secretary, visitors...) have a model and textures but no villager name entry:
+    # they are listed by their file name so they can be given outfits (the three-letter codes are the game's own)
+    for p in rom.glob_prefix("/Npc/Special/Model/", ".bcres"):
+        code = p.rsplit("/", 1)[-1][:-6]
+        out.append({"id": code, "name": code, "species": "Special characters", "catchphrase": "", "model": p, "special": True})
     return out
 
 

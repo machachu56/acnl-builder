@@ -24,6 +24,7 @@
    its exit leads to the building listed for the scene, so that entry is pointed at whichever door the
    player came in by. */
 #include "acnl_mod.h"
+#include "script_vm.h"
 
 namespace {
 
@@ -77,6 +78,7 @@ struct Page {
     uint32_t jmp;                 /* guest copy of the grid */
     Link links[MAX_LINKS];
     int nlinks;
+    char scene_id[32];            /* the id of the interior scene of this room (scripts name rooms by it) */
     bool has_entry;               /* where the player appears when coming in from outside (a door not on the south edge) */
     float entry_x, entry_z;
     int entry_yaw;
@@ -160,6 +162,7 @@ void set_key(Building &b, const char *key, const char *val) {
 
 void set_page_key(Page &p, const char *key, const char *val) {
     if (!strcmp(key, "variant")) copy_str(p.variant, sizeof p.variant, val);
+    else if (!strcmp(key, "id")) copy_str(p.scene_id, sizeof p.scene_id, val);
     else if (!strcmp(key, "jmp")) copy_str(p.jmp_file, sizeof p.jmp_file, val);
     else if (!strcmp(key, "entry")) {                             /* entry = x, z, yaw */
         int v[3] = {0, 0, 0};
@@ -190,15 +193,46 @@ void set_page_key(Page &p, const char *key, const char *val) {
     }
 }
 
+/* outfits of villagers: [outfit] villager, id, model, variant (the variant holds the repainted model) */
+struct Outfit { char villager[32], id[32], variant[64]; };
+const int MAX_OUTFITS = 64;
+Outfit g_outfit[MAX_OUTFITS];
+int g_noutfits = 0;
+void set_outfit_key(Outfit &o, const char *key, const char *val) {
+    if (!strcmp(key, "villager")) copy_str(o.villager, sizeof o.villager, val);
+    else if (!strcmp(key, "id")) copy_str(o.id, sizeof o.id, val);
+    else if (!strcmp(key, "variant")) copy_str(o.variant, sizeof o.variant, val);
+}
+
+/* [probe]: log what the game does, to find what to hook (see docs/HOOKS.md). hook = <address>, <label>; actors = 1 */
+struct Probe { uint32_t addr; char label[44]; int calls; };
+const int MAX_PROBES = 400;
+Probe g_probe[MAX_PROBES];
+int g_nprobe = 0;
+bool g_probe_actors = false;
+void set_probe_key(const char *key, const char *val) {
+    if (!strcmp(key, "actors")) g_probe_actors = acnl_strtol(val, nullptr, 0) != 0;
+    else if (!strcmp(key, "hook") && g_nprobe < MAX_PROBES) {
+        char *e;
+        Probe &p = g_probe[g_nprobe];
+        p.addr = (uint32_t)acnl_strtol(val, &e, 0);
+        while (*e == ',' || is_space(*e)) e++;
+        copy_str(p.label, sizeof p.label, e);
+        g_nprobe++;
+    }
+}
+
 /* acnlb.cfg: "[building]" starts a section, "key = value" lines, '#' comments */
 void load_config() {
-    static char text[8192];
+    static char text[32768];
     int n = acnl_read_file("acnlb.cfg", text, sizeof text - 1);
     if (n <= 0) return;
     if (n > (int)sizeof text - 1) n = sizeof text - 1;
     text[n] = 0;
     Building *cur = nullptr;
     Page *page = nullptr;
+    Outfit *outfit = nullptr;
+    bool inprobe = false;
     for (char *line = text; *line;) {
         char *end = line;
         while (*end && *end != '\n') end++;
@@ -208,10 +242,14 @@ void load_config() {
         while (is_space(*line)) line++;
         if (*line == '[') {
             page = nullptr;
-            if (!memcmp(line, "[building]", 10)) { cur = g_nb < MAX_MODS ? &g_b[g_nb++] : nullptr; if (cur) init_building(*cur); }
+            outfit = nullptr;
+            inprobe = false;
+            if (!memcmp(line, "[probe]", 7)) { cur = nullptr; inprobe = true; }
+            else if (!memcmp(line, "[outfit]", 8)) { cur = nullptr; if (g_noutfits < MAX_OUTFITS) outfit = &g_outfit[g_noutfits++]; }
+            else if (!memcmp(line, "[building]", 10)) { cur = g_nb < MAX_MODS ? &g_b[g_nb++] : nullptr; if (cur) init_building(*cur); }
             else if (!memcmp(line, "[page]", 6) && cur && cur->npages < MAX_PAGES) page = &cur->pages[cur->npages++];
             else cur = nullptr;                                    /* a section this plugin does not read (e.g. [outfit]) */
-        } else if (cur) {
+        } else if (cur || outfit || inprobe) {
             char *eq = line;
             while (*eq && *eq != '=') eq++;
             if (*eq == '=') {
@@ -222,7 +260,7 @@ void load_config() {
                 while (is_space(*val)) val++;
                 char *ve = val + strlen(val);
                 while (ve > val && is_space(ve[-1])) *--ve = 0;
-                if (page) set_page_key(*page, line, val); else set_key(*cur, line, val);
+                if (inprobe) set_probe_key(line, val); else if (outfit) set_outfit_key(*outfit, line, val); else if (page) set_page_key(*page, line, val); else set_key(*cur, line, val);
             }
         }
         line = next;
@@ -357,6 +395,143 @@ int hook_actor_create_pre(void *) {
     return ACNL_CONTINUE;
 }
 
+/* ---- probes */
+int hook_probe(void *user) {
+    Probe &p = g_probe[(int)(intptr_t)user];
+    if (p.calls++ < 30)
+        acnl_log("probe: %s r0=%08x r1=%08x r2=%08x r3=%08x from=%08x", p.label, (unsigned)acnl_reg(0), (unsigned)acnl_reg(1), (unsigned)acnl_reg(2), (unsigned)acnl_reg(3), (unsigned)acnl_return_address());
+    return ACNL_CONTINUE;
+}
+Saved s_probe_actor;
+int g_probe_actor_n = 0;
+int hook_probe_actor_pre(void *) { push(s_probe_actor, acnl_reg(0)); return ACNL_CONTINUE; }
+void hook_probe_actor_post(void *) {
+    uint32_t arg = pop(s_probe_actor), obj = acnl_reg(0);
+    if (g_probe_actor_n++ >= 400) return;
+    uint32_t vt = obj >= 0x100000 ? acnl_rd32(obj) : 0;
+    acnl_log("probe: actor profile=%u arg=%08x obj=%08x vtable=%08x scene=%u/%u", (unsigned)(arg & 0xFFFF), (unsigned)arg, (unsigned)obj, (unsigned)vt,
+             (unsigned)acnl_rd8(0x956320 + 2), (unsigned)acnl_rd8(0x956320 + 3));
+    if (obj >= 0x100000) {
+        uint32_t w[16];
+        if (acnl_read(obj, w, sizeof w) == 0)
+            acnl_log("probe: actor-words %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x", (unsigned)w[0], (unsigned)w[1], (unsigned)w[2], (unsigned)w[3], (unsigned)w[4], (unsigned)w[5], (unsigned)w[6], (unsigned)w[7], (unsigned)w[8], (unsigned)w[9], (unsigned)w[10], (unsigned)w[11], (unsigned)w[12], (unsigned)w[13], (unsigned)w[14], (unsigned)w[15]);
+    }
+}
+
+/* ---- scripts (acnlb.script: compiled by acnlb/script/compiler.py, run by script_vm.h) ---- */
+uint8_t g_script_blob[sv::MAX_CODE_BYTES + 2048];
+sv::Program g_prog;
+bool g_scripts = false;
+int32_t g_vars[64];
+uint32_t g_rng = 0x2545F491u;
+struct ScriptState { bool hide, skip, become, place; uint32_t profile; float px, pz; int yaw; } g_sc;
+ScriptState g_entry_override;     /* place_player() from an @on_enter handler, used when the game puts the player in the room */
+bool g_has_override = false;
+
+char g_cbuf[4][64];
+int g_cb = 0;
+const char *cstr(int idx) {                  /* a string of the program as a C string */
+    char *o = g_cbuf[g_cb++ & 3];
+    int n = 0;
+    if (idx >= 0 && idx < g_prog.nstr) { n = g_prog.slen[idx]; if (n > 63) n = 63; memcpy(o, g_prog.str[idx], (size_t)n); }
+    o[n] = 0;
+    return o;
+}
+uint32_t script_rand() { g_rng ^= g_rng << 13; g_rng ^= g_rng >> 17; g_rng ^= g_rng << 5; return g_rng; }
+
+/* the game's clock: the 3DS shared page holds ms since 1900 (local time), double buffered */
+void game_clock(int32_t *y, int32_t *mo, int32_t *d, int32_t *wd, int32_t *h, int32_t *mi) {
+    uint32_t sel = acnl_rd32(0x1FF81000) & 1, base = 0x1FF81020 + sel * 0x20;
+    uint32_t lo = acnl_rd32(base), hi = acnl_rd32(base + 4);
+    sv::civil(((uint64_t)hi << 32) | lo, y, mo, d, wd, h, mi);
+}
+
+bool script_call(void *, int id, const int32_t *a, int n, int32_t *ret, bool *has) {
+    (void)n;
+    *has = false;
+    int32_t y, mo, d, wd, h, mi;
+    switch (id) {
+    case 0: case 1: case 2: case 3: case 4: case 5:
+        game_clock(&y, &mo, &d, &wd, &h, &mi);
+        *ret = id == 0 ? h : id == 1 ? mi : id == 2 ? wd : id == 3 ? d : id == 4 ? mo : y; *has = true; return true;
+    case 6: *ret = g_cur >= 0 && !strcmp(g_b[g_cur].id, cstr(a[0])); *has = true; return true;
+    case 7: *ret = g_cur >= 0 && !strcmp(g_b[g_cur].id, cstr(a[0])) && g_page < g_b[g_cur].npages && !strcmp(g_b[g_cur].pages[g_page].scene_id, cstr(a[1])); *has = true; return true;
+    case 8: *ret = (int32_t)(script_rand() % 100u) < a[0]; *has = true; return true;
+    case 9: *ret = a[0] > 0 ? (int32_t)(script_rand() % (uint32_t)a[0]) : 0; *has = true; return true;
+    case 10: if (a[0] < 0 || a[0] >= 64) return false; *ret = g_vars[a[0]]; *has = true; return true;
+    case 11: if (a[0] < 0 || a[0] >= 64) return false; g_vars[a[0]] = a[1]; return true;
+    case 12: acnl_log("script: %s %d", cstr(a[0]), (int)a[1]); return true;
+    case 13: case 14:
+        for (int i = 0; i < g_noutfits; i++)
+            if (!strcmp(g_outfit[i].villager, cstr(a[0]))) acnl_set_romfs_variant(g_outfit[i].variant, id == 13 && !strcmp(g_outfit[i].id, cstr(a[1])));
+        return true;
+    case 15: acnl_set_romfs_variant(cstr(a[0]), 1); return true;
+    case 16: acnl_set_romfs_variant(cstr(a[0]), 0); return true;
+    case 17: g_sc.hide = true; return true;
+    case 18: g_sc.become = true; g_sc.profile = (uint32_t)a[0]; return true;
+    case 19: g_sc.place = true; g_sc.px = a[0] * TILE + TILE / 2.0f; g_sc.pz = a[1] * TILE + TILE / 2.0f; g_sc.yaw = a[2]; return true;
+    case 20: *ret = acnl_rd8((uint32_t)a[0]); *has = true; return true;
+    case 21: *ret = acnl_rd16((uint32_t)a[0]); *has = true; return true;
+    case 22: *ret = (int32_t)acnl_rd32((uint32_t)a[0]); *has = true; return true;
+    case 23: acnl_wr8((uint32_t)a[0], (uint8_t)a[1]); return true;
+    case 24: acnl_wr16((uint32_t)a[0], (uint16_t)a[1]); return true;
+    case 25: acnl_wr32((uint32_t)a[0], (uint32_t)a[1]); return true;
+    case 26: *ret = (int32_t)acnl_reg((uint32_t)a[0] & 15); *has = true; return true;
+    case 27: acnl_set_reg((uint32_t)a[0] & 15, (uint32_t)a[1]); return true;
+    case 28: g_sc.skip = true; return true;
+    }
+    return false;
+}
+
+void script_run(const sv::Handler &h) {
+    sv::Host host{nullptr, script_call};
+    int rc = sv::run(h.code, h.len, h.nlocals, host);
+    if (rc) acnl_log("script: a handler stopped with error %d (1 too long, 2 stack, 3 bad code, 4 division by zero, 5 failed built-in)", rc);
+}
+
+/* run every handler of a kind that matches. building/room: the place; num: actor profile */
+void script_fire(int kind, const char *building, const char *room, uint32_t num, bool from_link = false) {
+    if (!g_scripts) return;
+    for (int i = 0; i < g_prog.nhandlers; i++) {
+        const sv::Handler &h = g_prog.h[i];
+        if (h.kind != kind) continue;
+        if (kind == sv::K_ACTOR && h.num != num) continue;
+        if (kind == sv::K_ENTER || kind == sv::K_LEAVE || kind == sv::K_ROOM) {
+            if (!building || !sv::str_is(g_prog, h.s1, building)) continue;
+            if (kind == sv::K_ROOM && !(room && sv::str_is(g_prog, h.s2, room))) continue;
+            if (kind == sv::K_ENTER) {
+                if (h.s2 != 0xFFFF && !(room && sv::str_is(g_prog, h.s2, room))) continue;
+                if (h.s2 == 0xFFFF && from_link) continue;
+            }
+        }
+        script_run(h);
+    }
+}
+
+int hook_script_actor_pre(void *) {
+    if (!g_scripts) return ACNL_CONTINUE;
+    uint32_t arg = acnl_reg(0);
+    memset(&g_sc, 0, sizeof g_sc);
+    script_fire(sv::K_ACTOR, nullptr, nullptr, arg & 0xFFFF);
+    if (g_sc.become) acnl_set_reg(0, (arg & ~0xFFFFu) | (g_sc.profile & 0xFFFF));
+    if (g_sc.hide) { acnl_set_reg(0, 0); return ACNL_SKIP; }
+    return ACNL_CONTINUE;
+}
+
+int hook_script_call_pre(void *user) {
+    memset(&g_sc, 0, sizeof g_sc);
+    script_run(g_prog.h[(int)(intptr_t)user]);
+    return g_sc.skip ? ACNL_SKIP : ACNL_CONTINUE;
+}
+
+void load_scripts() {
+    int n = acnl_read_file("acnlb.script", g_script_blob, sizeof g_script_blob);
+    if (n <= 0) return;
+    if (n > (int)sizeof g_script_blob || !sv::parse(g_script_blob, n, g_prog)) { acnl_log("script: acnlb.script is damaged: scripts are off"); return; }
+    g_scripts = g_prog.nhandlers > 0;
+    acnl_log("script: %d trigger(s) loaded", g_prog.nhandlers);
+}
+
 /* ---- new IDs: answer the game's per-building lookups ---- */
 Building *new_id_building(uint32_t id) {
     int i = find_building(id);
@@ -436,14 +611,16 @@ int hook_goto_pre(void *) {
         g_page = 0;
         want = acnl_reg(1) & 0xFF;
     }
-    if (g_cur >= 0 && cur == 0 && g_b[g_cur].scene >= 0 && want == (uint32_t)g_b[g_cur].scene && g_b[g_cur].npages && g_b[g_cur].pages[0].has_entry) {
-        /* coming in through the door of a room whose entrance is on another edge than the south one */
+    if (g_cur >= 0 && cur == 0 && g_b[g_cur].scene >= 0 && want == (uint32_t)g_b[g_cur].scene && g_b[g_cur].npages && (g_has_override || g_b[g_cur].pages[0].has_entry)) {
+        /* coming in through the door: a script's place_player(), or a room whose entrance is not on the south edge */
         const Page &pg0 = g_b[g_cur].pages[0];
-        float np[3] = {pg0.entry_x, 32.0f, pg0.entry_z};
-        uint16_t na[3] = {0, (uint16_t)pg0.entry_yaw, 0};
+        float np[3] = {g_has_override ? g_entry_override.px : pg0.entry_x, 32.0f, g_has_override ? g_entry_override.pz : pg0.entry_z};
+        uint16_t na[3] = {0, (uint16_t)(g_has_override ? g_entry_override.yaw : pg0.entry_yaw), 0};
         acnl_write(acnl_reg(2), np, 12);
         acnl_write(acnl_reg(3), na, 6);
+        g_has_override = false;
     }
+    bool linked = false;
     if (g_cur >= 0 && g_page < g_b[g_cur].npages && cur == (uint32_t)g_b[g_cur].scene && want == 0 && g_player) {
         Building &b = g_b[g_cur];
         Page &pg = b.pages[g_page];
@@ -462,9 +639,19 @@ int hook_goto_pre(void *) {
                 acnl_set_reg(1, (uint32_t)b.scene);
                 select_page(b, k.to);
                 acnl_log("builder: %s: room %d -> room %d (tile %d,%d)", b.id, (int)(&pg - b.pages), k.to, tx, ty);
+                linked = true;
+                if (g_scripts) {
+                    memset(&g_sc, 0, sizeof g_sc);
+                    script_fire(sv::K_ROOM, b.id, b.pages[k.to].scene_id, 0);
+                    script_fire(sv::K_ENTER, b.id, b.pages[k.to].scene_id, 0, true);
+                }
                 break;
             }
         }
+    }
+    if (g_scripts && !linked && g_cur >= 0 && cur == (uint32_t)g_b[g_cur].scene && want == 0) {      /* @on_leave */
+        memset(&g_sc, 0, sizeof g_sc);
+        script_fire(sv::K_LEAVE, g_b[g_cur].id, g_page < g_b[g_cur].npages ? g_b[g_cur].pages[g_page].scene_id : "", 0);
     }
     if (g_trace) {
         float pos[3] = {0, 0, 0};
@@ -495,6 +682,12 @@ void hook_building_scene_post(void *) {
         for (int k = 0; k < g_b[i].npages; k++) acnl_set_romfs_variant(g_b[i].pages[k].variant, i == g_cur && k == 0);
     }
     g_page = 0;
+    g_has_override = false;
+    if (g_scripts && g_cur >= 0) {                  /* @on_enter */
+        memset(&g_sc, 0, sizeof g_sc);
+        script_fire(sv::K_ENTER, g_b[g_cur].id, g_b[g_cur].npages ? g_b[g_cur].pages[0].scene_id : "", 0);
+        if (g_sc.place) { g_entry_override = g_sc; g_has_override = true; }
+    }
     uint32_t scene = acnl_reg(0);
     if (scene >= 0xA5) return;
     /* the scene's exit leads to the building listed for it: the one whose door the player used, else the original */
@@ -529,6 +722,7 @@ void select_page(Building &b, int page) {
 extern "C" int acnl_mod_init(void) {
     for (int i = 0; i < 0xA5; i++) g_scene_owner[i] = acnl_rd8(SCENE_BLD_TABLE + i);     /* who each interior leads out to */
     load_config();
+    load_scripts();
     bool any_jmp = false, any_hide = false, any_new = false, any_links = false;
     for (int i = 0; i < g_nb; i++) {
         Building &b = g_b[i];
@@ -576,9 +770,22 @@ extern "C" int acnl_mod_init(void) {
     char tr[8];
     g_trace = acnl_getenv("BUILDER_TRACE", tr, sizeof tr) >= 0;
     g_debug_enter = acnl_getenv("BUILDER_DEBUG_ENTER", tr, sizeof tr) >= 0;
-    if ((any_links || g_trace || g_debug_enter) && acnl_hook(FN_GOTO_SCENE, hook_goto_pre, nullptr, nullptr) != 0) return -1;
+    if ((any_links || g_trace || g_debug_enter || (g_scripts && g_nb)) && acnl_hook(FN_GOTO_SCENE, hook_goto_pre, nullptr, nullptr) != 0) return -1;
     if (any_links && acnl_hook(FN_ACTOR_CREATE, hook_actor_track_pre, hook_actor_track_post, nullptr) != 0) return -1;
     if (any_hide && acnl_hook(FN_ACTOR_CREATE, hook_actor_create_pre, nullptr, nullptr) != 0) return -1;
+    for (int i = 0; i < g_nprobe; i++)
+        if (acnl_hook(g_probe[i].addr, hook_probe, nullptr, (void *)(intptr_t)i) != 0) acnl_log("probe: cannot hook %#x (%s)", (unsigned)g_probe[i].addr, g_probe[i].label);
+    if (g_probe_actors && acnl_hook(FN_ACTOR_CREATE, hook_probe_actor_pre, hook_probe_actor_post, nullptr) != 0) return -1;
+    if (g_scripts) {
+        bool actors = false;
+        for (int i = 0; i < g_prog.nhandlers; i++) {
+            const sv::Handler &h = g_prog.h[i];
+            if (h.kind == sv::K_ACTOR) actors = true;
+            if (h.kind == sv::K_CALL && acnl_hook(h.num, hook_script_call_pre, nullptr, (void *)(intptr_t)i) != 0)
+                acnl_log("script: cannot hook %#x: it is not a function of the game, the trigger stays off", (unsigned)h.num);
+        }
+        if (actors && acnl_hook(FN_ACTOR_CREATE, hook_script_actor_pre, nullptr, nullptr) != 0) return -1;
+    }
     if (any_jmp && acnl_hook(FN_JMP_BLOCK, hook_jmp_block_pre, hook_jmp_block_post, nullptr) != 0) return -1;
     return 0;
 }

@@ -22,6 +22,8 @@ def config_text(b):
             out.append("%s = %s" % (k, _val(v)))
         for pg in bld.get("pages", []):
             out += ["", "[page]", "variant = %s" % pg["variant"], "jmp = %s" % pg["jmp"]]
+            if pg.get("id"):
+                out.append("id = %s" % pg["id"])
             if pg.get("entry"):
                 out.append("entry = %s" % pg["entry"])
             out += ["link = %s" % l for l in pg.get("links", [])]

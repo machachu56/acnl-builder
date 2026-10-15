@@ -8,6 +8,8 @@ A design suite for mods of the *Animal Crossing: New Leaf* recomp. You design in
 python3 -m acnlb export baisodrome --install      # headless: projects/baisodrome -> exports/baisodrome.acmod
 python3 -m acnlb doctor         # checks the ROM, the recomp checkout and the WebAssembly toolchain
 python3 -m unittest discover -s tests
+python3 -m acnlb map --find Weather            # explore the game's classes / methods / strings (docs/HOOKS.md)
+python3 -m acnlb probe --actors --install      # a mod that logs what the game does, to find what to hook
 ```
 
 Needs Python 3.10+ with Pillow (`pip install -r requirements.txt`), the recomp checkout at `../recomp` (its `tools/modkit` does the CGFX / MSBT / ETC1
@@ -20,11 +22,12 @@ Environment: `ACNL_RECOMP`, `ACNL_ROM`, `ACNL_BIN` (the game executable for "Ins
 | tab | what | how it ends up in the game |
 |---|---|---|
 | **Dialogue** | any line the game has: NPC talk, names, menus, mail (5 languages, live message-window preview with the 3 × 34 limits, control-code buttons) | edited `.umsbt` files; an edit can apply only *inside one of your buildings* |
-| **Villagers** | rename a villager, new catch phrase | `STR_NNpc_name` / `STR_NNpc_habit` |
+| **Villagers** | rename a villager, new catch phrase, **outfits** (paint or import a PNG; special characters too) | `STR_NNpc_name` / `STR_NNpc_habit` |
 | **Textures** | pixel editor + UV layout + 3D preview for any texture of any game model: villager skins, **clothes** (tops, bottoms, hats, shoes, socks… shown on the player model), furniture, buildings | the texture is re-encoded in its own format (ETC1/ETC1A4/RGBA4/… with mip maps) |
 | **Buildings** | new town buildings: parametric exterior (3 presets, roof/walls/door/windows/ornament/sign, every colour), paint-over layer, name per language, map icon, position | a real building in the town (new and existing towns), its model/textures/data under `/Strc/sobj/<name>/` |
 | **Interiors** | 16 × 16 plan editor + live 3D: rooms, doorways (with signs: your own text, colours, font), a door on any edge, doors that cross into other rooms (two-way), floors/walls from presets or hand-drawn, boxes/cylinders/rugs/tubs/beds/lamps, any game furniture, **your own 3D models** (glTF/GLB, OBJ+MTL, STL, PLY from Blender), items can be raised/lowered, collision | the room model of Nook's Homes replaced only while inside your building, with its collision grid |
 | **Events** | scripted conversations when the player walks in (Tom Nook presents the place…), goodbye line | the character's "enter" flow is rewritten, only inside that building |
+| **Scripts** | Python-syntax triggers (`@on_enter`, `@on_actor`, `@on_call(address)`…): clock, remembered values, dress villagers in outfits, hide/replace actors, place the player, hook any game function. Checked and run through a pretend day in the editor, compiled to a small program the plugin interprets ([docs/SCRIPTING.md](docs/SCRIPTING.md)) | `acnlb.script` + the runtime plugin |
 | **Export** | builds, warns (text too long, …), installs, starts the game | `<project>.acmod` |
 
 Projects live in `projects/<id>/` (`project.json` + `assets/*.png`), everything autosaves, and the JSON is meant to be

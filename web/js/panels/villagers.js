@@ -37,16 +37,16 @@ export function render(root, app) {
     const v = st.all.find((x) => x.id === st.sel);
     if (!v) { mount(main, h('div', { class: 'empty' }, 'Pick a villager.')); mount(side); return; }
     let e = P.villagers.find((x) => x.id === v.id);
-    const ensure = () => { if (!e) { e = { id: v.id, name: {}, catchphrase: {} }; P.villagers.push(e); } return e; };
+    const ensure = () => { if (!e) { e = { id: v.id, name: {}, catchphrase: {} }; if (v.special) e.model = v.model; P.villagers.push(e); } return e; };
     const prune = () => { if (e && !Object.values(e.name || {}).some(Boolean) && !Object.values(e.catchphrase || {}).some(Boolean) && !(e.outfits || []).length) { P.villagers.splice(P.villagers.indexOf(e), 1); e = null; } };
     const tabs = h('div', { class: 'tabs', style: { marginBottom: '12px' } }, LANGS.map((l) => h('button', { class: l === st.lang ? 'on' : '', onclick: () => { st.lang = l; drawMain(); } }, l.toUpperCase())));
     mount(main,
       h('div', { class: 'row', style: { marginBottom: '8px' } }, h('h2', {}, v.name), h('span', { class: 'chip' }, v.species), h('span', { class: 'dim' }, v.id)),
-      tabs,
-      h('div', { class: 'grid2' },
+      v.special ? h('div', { class: 'info-box' }, 'A special character (shopkeeper, secretary, visitor…), listed by the game’s file code: its name and lines are not editable here, but it can have outfits.') : tabs,
+      v.special ? null : h('div', { class: 'grid2' },
         field('Name (' + st.lang + ')', textInput((e && e.name && e.name[st.lang]) || '', (val) => { ensure().name = e.name || {}; if (val) e.name[st.lang] = val; else delete e.name[st.lang]; prune(); changed(); draw(); }, { placeholder: v.name }), 'Shown everywhere: dialogue boxes, the town map, mail.'),
         field('Catch phrase (' + st.lang + ')', textInput((e && e.catchphrase && e.catchphrase[st.lang]) || '', (val) => { ensure().catchphrase = e.catchphrase || {}; if (val) e.catchphrase[st.lang] = val; else delete e.catchphrase[st.lang]; prune(); changed(); draw(); }, { placeholder: v.catchphrase }), 'Added at the end of what they say.')),
-      h('div', { class: 'info-box', style: { marginTop: '14px' } }, 'A villager’s conversation lines come from their personality, shared by every villager of that personality: change them in ', h('a', { href: '#dialogue', style: { color: 'inherit' } }, 'Dialogue'), ' (files AN_, BO_, FU_, GE_, HA_, KO_, OT_, ZK_ are the eight personalities).'),
+      v.special ? null : h('div', { class: 'info-box', style: { marginTop: '14px' } }, 'A villager’s conversation lines come from their personality, shared by every villager of that personality: change them in ', h('a', { href: '#dialogue', style: { color: 'inherit' } }, 'Dialogue'), ' (files AN_, BO_, FU_, GE_, HA_, KO_, OT_, ZK_ are the eight personalities).'),
       h('div', { class: 'row', style: { marginTop: '14px' } }, h('button', { class: 'primary', onclick: () => { app.preset = { model: v.model }; app.go('textures'); } }, 'Paint ' + v.name + '…'),
         P.textures.some((t) => t.file === v.model) ? h('span', { class: 'chip warn' }, 'has a custom skin') : null),
       outfitsCard(v, ensure, prune));

@@ -107,7 +107,7 @@ def compile(b):
                     links.append("%d, %d, %d, %d, %d, %d" % (x, y, index[lk["to"]], ax, ay, YAW.get(lk.get("face", "north"), 32768)))
             if len(links) > 8:
                 raise ValueError("interior %s: at most 8 link tiles per room (has %d)" % (spec["id"], len(links)))
-            page = {"variant": var, "jmp": name, "links": links}
+            page = {"variant": var, "jmp": name, "links": links, "id": spec["id"]}
             if k == 0 and bt.plan.spawn:                  # an entrance that is not on the south edge: say where the player appears
                 sx, sz, yaw = bt.plan.spawn
                 page["entry"] = "%d, %d, %d" % (sx, sz, yaw)
