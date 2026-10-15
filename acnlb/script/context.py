@@ -18,6 +18,13 @@ KNOWN_ACTORS = {
 }
 
 
+# actors that crashed the game when created in a place that is not theirs (seen in real runs): become() refuses them
+UNSAFE_BECOME = {
+    454: "AcNpcSpSecretaryIn (Isabelle at the town hall counter) crashes the game when it is created anywhere but the town hall "
+         "(a null pointer in its model, seen when it was put in the Baisodrome)",
+}
+
+
 def _seen_actors():
     import json, os
     try:
@@ -83,5 +90,5 @@ def build_ctx(proj):
     return compiler.Ctx(
         buildings={b["id"]: rooms_of(proj, b) for b in proj.get("buildings", [])},
         villagers={v["id"]: [o["id"] for o in v.get("outfits") or []] for v in proj.get("villagers", [])},
-        actors=actors, is_function=is_function, resolve_method=resolve_method,
+        actors=actors, is_function=is_function, resolve_method=resolve_method, unsafe_become=UNSAFE_BECOME,
         conversations=[e["id"] for e in proj.get("events", []) if e.get("scope") == "script"])

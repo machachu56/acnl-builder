@@ -118,6 +118,11 @@ class Compile(unittest.TestCase):
         tl = r["handlers"][0]["timeline"]
         self.assertEqual([(s["start"], s["end"], bool(s["does"])) for s in tl], [("00:00", "06:00", True), ("06:00", "22:00", False), ("22:00", "00:00", True)])
 
+    def test_become_refuses_actors_that_crash_the_game(self):
+        r = check('@on_actor("Tom Nook")\ndef f():\n    become("Isabelle")\n', Ctx(actors={"Isabelle": 454, "Tom Nook": 492}, unsafe_become={454: "crashes"}))
+        self.assertFalse(r["ok"])
+        self.assertIn("cannot use this actor", r["diagnostics"][0]["message"])
+
     def test_runaway_loops_cannot_exist(self):
         r = check('@on_enter("baisodrome")\ndef f():\n    for i in range(64):\n        for j in range(64):\n            for k in range(64):\n                log("x")\n', CTX)
         self.assertFalse(r["ok"])                                # 262144 steps: over the budget

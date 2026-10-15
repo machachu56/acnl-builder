@@ -49,13 +49,14 @@ class Stop(Exception):
 class Ctx:
     """what the project and the game offer, for checking names"""
 
-    def __init__(self, buildings=None, villagers=None, actors=None, is_function=None, variants=None, conversations=None, resolve_method=None):
+    def __init__(self, buildings=None, villagers=None, actors=None, is_function=None, variants=None, conversations=None, resolve_method=None, unsafe_become=None):
         self.buildings = buildings or {}          # id -> [room ids (interior scene ids)]
         self.villagers = villagers or {}          # id -> [outfit ids]
         self.actors = {k.lower(): v for k, v in (actors or {}).items()}      # name -> profile id
         self.actor_names = dict(actors or {})
         self.is_function = is_function            # addr -> bool, or None when the code map is not available
         self.resolve_method = resolve_method      # "Class.3" -> (address, [])
+        self.unsafe_become = unsafe_become or {}  # profile -> why creating it elsewhere crashes the game
         self.variants = variants or []
         self.conversations = conversations or []          # ids of events a script may switch on
 
@@ -540,7 +541,10 @@ class Compiler:
                 o = self.name_arg(a, "outfit of %s" % self.vill, self.ctx.villagers.get(self.vill, []))
                 self.op_push(self.prog.string(o))
             elif pt == "actor":
-                self.op_push(self.actor_value(a))
+                prof = self.actor_value(a)
+                if name == "become" and prof in self.ctx.unsafe_become:
+                    self.err(a, "become() cannot use this actor: " + self.ctx.unsafe_become[prof], "see docs/HOOKS.md, \"What crashed\"")
+                self.op_push(prof)
         for _ in range(len(nat.params) - len(n.args)):
             self.op_push(0)                                  # optional values default to 0
         self.emit(0x0B, {30: 15, 31: 16}.get(nat.id, nat.id), len(nat.params))        # conversation_on/off are variant_on/off of the event's variant

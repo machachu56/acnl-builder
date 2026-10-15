@@ -84,6 +84,16 @@ Actors the game creates (profile number = what `@on_actor` takes; these are buil
   how they get created is not known yet.
 * **Not yet seen:** the Baisodrome itself (the mod was not installed in that run), a villager changing a shirt (the save had no way to do it), rain or snow.
 
+## What crashed
+
+Real runs, recorded so nobody repeats them (the builder refuses these):
+
+* **`become("Isabelle")` outside the town hall.** `AcNpcSpSecretaryIn` was created in the Baisodrome (scene 65) and the game
+  stopped with a memory fault at `0x6aa540` (a method of `NpcModel`, reading through a null model pointer). The class is built to
+  run inside the town hall and needs data only that place sets up. Tom Nook, Honma and Takumi *did* work there, because that place
+  is theirs. So a character can only be created where the game already prepares them; what can be swapped safely is
+  the *look and lines* of the three that exist there (outfits, conversations), not the class.
+
 ## Classes worth probing for the things people ask for
 
 Addresses are for the game version read by `python3 tools/gen_hooks_doc.py` (re-run it with your dump to refresh).
