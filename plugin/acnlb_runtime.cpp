@@ -406,14 +406,17 @@ int hook_probe(void *user) {
 /* the spawn function's arguments: the struct r1 points at (profile first) and the stack arguments, to learn what each field means */
 int g_probe_spawn_n = 0;
 int hook_probe_spawn_pre(void *) {
-    if (g_probe_spawn_n++ >= 600) return ACNL_CONTINUE;
     uint32_t desc = acnl_reg(1), sp = acnl_reg(13);
-    uint32_t w[24] = {0}, s[8] = {0};
+    uint32_t prof0 = desc >= 0x100000 ? acnl_rd16(desc) : 0;
+    if (prof0 < 380 || prof0 > 560) return ACNL_CONTINUE;                 /* the characters (AcNpc*) only */
+    if (g_probe_spawn_n++ >= 300) return ACNL_CONTINUE;
+    uint32_t w[64] = {0}, s[8] = {0};
     if (desc >= 0x100000) acnl_read(desc, w, sizeof w);
     acnl_read(sp, s, sizeof s);
     acnl_log("probe: spawn profile=%u r0=%08x r1=%08x r2=%08x r3=%08x scene=%u/%u", (unsigned)(w[0] & 0xFFFF), (unsigned)acnl_reg(0), (unsigned)desc, (unsigned)acnl_reg(2), (unsigned)acnl_reg(3),
              (unsigned)acnl_rd8(0x956320 + 2), (unsigned)acnl_rd8(0x956320 + 3));
-    acnl_log("probe: spawn-desc %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x", (unsigned)w[0], (unsigned)w[1], (unsigned)w[2], (unsigned)w[3], (unsigned)w[4], (unsigned)w[5], (unsigned)w[6], (unsigned)w[7], (unsigned)w[8], (unsigned)w[9], (unsigned)w[10], (unsigned)w[11]);
+    for (int k = 0; k < 64; k += 16)
+        acnl_log("probe: spawn-desc+%02x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x", k * 4, (unsigned)w[k], (unsigned)w[k+1], (unsigned)w[k+2], (unsigned)w[k+3], (unsigned)w[k+4], (unsigned)w[k+5], (unsigned)w[k+6], (unsigned)w[k+7], (unsigned)w[k+8], (unsigned)w[k+9], (unsigned)w[k+10], (unsigned)w[k+11], (unsigned)w[k+12], (unsigned)w[k+13], (unsigned)w[k+14], (unsigned)w[k+15]);
     acnl_log("probe: spawn-stack %08x %08x %08x %08x %08x %08x %08x %08x", (unsigned)s[0], (unsigned)s[1], (unsigned)s[2], (unsigned)s[3], (unsigned)s[4], (unsigned)s[5], (unsigned)s[6], (unsigned)s[7]);
     return ACNL_CONTINUE;
 }
