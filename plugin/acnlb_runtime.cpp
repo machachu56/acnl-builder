@@ -515,7 +515,7 @@ void script_fire(int kind, const char *building, const char *room, uint32_t num,
     for (int i = 0; i < g_prog.nhandlers; i++) {
         const sv::Handler &h = g_prog.h[i];
         if (h.kind != kind) continue;
-        if (kind == sv::K_ACTOR && h.num != num) continue;
+        if (kind == sv::K_ACTOR && !(num >= h.num && num <= (h.s2 != 0xFFFF ? (uint32_t)h.s2 : h.num))) continue;
         if (kind == sv::K_ENTER || kind == sv::K_LEAVE || kind == sv::K_ROOM) {
             if (!building || !sv::str_is(g_prog, h.s1, building)) continue;
             if (kind == sv::K_ROOM && !(room && sv::str_is(g_prog, h.s2, room))) continue;
@@ -802,7 +802,6 @@ extern "C" int acnl_mod_init(void) {
     g_debug_enter = acnl_getenv("BUILDER_DEBUG_ENTER", tr, sizeof tr) >= 0;
     if ((any_links || g_trace || g_debug_enter || (g_scripts && g_nb)) && acnl_hook(FN_GOTO_SCENE, hook_goto_pre, nullptr, nullptr) != 0) return -1;
     if (any_links && acnl_hook(FN_ACTOR_CREATE, hook_actor_track_pre, hook_actor_track_post, nullptr) != 0) return -1;
-    if (any_hide && acnl_hook(FN_ACTOR_CREATE, hook_actor_create_pre, nullptr, nullptr) != 0) return -1;
     for (int i = 0; i < g_nprobe; i++)
         if (acnl_hook(g_probe[i].addr, hook_probe, nullptr, (void *)(intptr_t)i) != 0) acnl_log("probe: cannot hook %#x (%s)", (unsigned)g_probe[i].addr, g_probe[i].label);
     if (g_probe_actors && acnl_hook(FN_ACTOR_CREATE, hook_probe_actor_pre, hook_probe_actor_post, nullptr) != 0) return -1;
@@ -816,6 +815,8 @@ extern "C" int acnl_mod_init(void) {
         }
         if (actors && acnl_hook(FN_ACTOR_CREATE, hook_script_actor_pre, hook_script_actor_post, nullptr) != 0) return -1;
     }
+    /* after the scripts' hook: a script may turn a furniture request into a character before the exhibits are hidden */
+    if (any_hide && acnl_hook(FN_ACTOR_CREATE, hook_actor_create_pre, nullptr, nullptr) != 0) return -1;
     if (any_jmp && acnl_hook(FN_JMP_BLOCK, hook_jmp_block_pre, hook_jmp_block_post, nullptr) != 0) return -1;
     return 0;
 }

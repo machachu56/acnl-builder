@@ -247,7 +247,12 @@ class Compiler:
                 r = self.name_arg(a, "room of %s" % building, self.ctx.buildings.get(building, []))
                 h.s2 = self.prog.string(r)
             elif pt == "actor":
-                h.num = self.actor_value(a)
+                if pn == "last":
+                    h.s2 = self.actor_value(a)
+                    if not (h.num <= h.s2 < 0xFFFF):
+                        self.err(a, "`last` must be a profile number not smaller than the first one")
+                else:
+                    h.num = self.actor_value(a)
             elif pt == "addr":
                 v = a.value if isinstance(a, ast.Constant) else None
                 if not isinstance(v, int) or isinstance(v, bool):

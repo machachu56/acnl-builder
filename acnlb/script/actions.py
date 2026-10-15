@@ -80,8 +80,8 @@ TRIGGERS = {
                  "Runs when the player leaves the building to the town."),
     "on_room": ("room", [("building", "building"), ("room", "room")], [],
                 "Runs when the player passes into this room of the building (through a door between rooms)."),
-    "on_actor": ("actor", [("actor", "actor")], [],
-                 "Runs each time the game is about to create this actor (a villager, a shop assistant...) in a place you are loading. This is where villagers can be hidden or swapped."),
+    "on_actor": ("actor", [("actor", "actor")], [("last", "actor")],
+                 "Runs each time the game is about to create this actor (a villager, a shop assistant...) in a place you are loading. This is where villagers can be hidden or swapped. With last=N it covers every profile from the first number to N (e.g. all the furniture actors)."),
     "on_call": ("call", [("address", "addr")], [],
                 "Advanced: runs every time the game calls the function at this address, before it does. Build any new action from this."),
 }

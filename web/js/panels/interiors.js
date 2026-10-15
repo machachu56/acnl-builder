@@ -173,6 +173,15 @@ export function render(root, app) {
     }
     // items
     for (const it of sc.items) drawItem(g, it, st.multi.has(it.id), sc);
+    // characters: where the game puts its own three (grey), and the ones you placed (purple, draggable)
+    if (P.buildings.some((b) => reach({ id: b.interior }).some((x) => x.id === sc.id)) || P.interiors.some((T) => (T.cast || []).length && reach(T).some((x) => x.id === sc.id))) {
+      for (const [n, [tx, ty]] of Object.entries(VANILLA)) { g.setLineDash([3, 3]); g.strokeStyle = 'rgba(200,200,210,.55)'; g.strokeRect(tx * S36 + 8, ty * S36 + 8, S36 - 16, S36 - 16); g.setLineDash([]); label(g, n + ' (game)', tx * S36 - 2, ty * S36 + 6); }
+      for (const m of castMarks(sc)) {
+        const cx = m.x * S36 + S36 / 2, cy = m.y * S36 + S36 / 2, on = st.castSel === m.c;
+        g.fillStyle = 'rgba(176,124,255,.9)'; g.beginPath(); g.arc(cx, cy, 13, 0, 7); g.fill(); g.lineWidth = on ? 3 : 2; g.strokeStyle = on ? '#fff' : '#3a2466'; g.stroke();
+        g.fillStyle = '#fff'; g.font = 'bold 13px system-ui'; g.fillText(m.c.with.slice(0, 1), cx - 4, cy + 5); label(g, m.c.with + (m.c.from ? ' ' + m.c.from + '–' + m.c.to : ''), cx - 24, cy - 17, on);
+      }
+    }
     // selection: a clear frame around every selected item (dark outline + bright frame + corner handles), and one around the group
     const chosen = sc.items.filter((it) => st.multi.has(it.id));
     for (const it of chosen) {
@@ -242,7 +251,10 @@ export function render(root, app) {
       changed(); drawAll(); preview(); return;
     }
     if (st.tool === 'select') {
-      const it = itemAt(sc, w), add = e.ctrlKey || e.metaKey || e.shiftKey;
+      const cm = castMarks(sc).find((m) => Math.hypot(w[0] - (m.x * T + T / 2), w[1] - (m.y * T + T / 2)) < 16);
+      if (cm) { setSel([]); st.castSel = cm.c; st.drag = { kind: 'cast', c: cm.c }; drawInspector(); drawLists(); drawPlan(); return; }
+      st.castSel = null;
+      const it = itemAt(sc, w), add = e.ctrlKey || e.shiftKey || e.metaKey;
       if (it) {
         if (add) { const was = st.multi.has(it.id); setSel(toggleIn(it.id)); if (was) { drawInspector(); drawLists(); drawPlan(); return; } }   // Ctrl/Shift-click toggles
         else if (!st.multi.has(it.id)) setSel([it.id]);
@@ -293,7 +305,8 @@ export function render(root, app) {
         setSel([...ids]); d.dragged = true; drawLists();
       }
       drawPlan();
-    } else if (d && d.kind === 'move') {
+    } else if (d && d.kind === 'cast') { d.c.x = t[0]; d.c.y = t[1]; drawPlan(); }
+    else if (d && d.kind === 'move') {
       const dx = w[0] - d.start[0], dz = w[1] - d.start[1];
       const sn = d.snap ? 8 : 1, ax = Math.round(dx / sn) * sn, az = Math.round(dz / sn) * sn;
       const mx = ax - d.total[0], mz = az - d.total[1];
@@ -322,7 +335,8 @@ export function render(root, app) {
     } else if (d.kind === 'marquee') {
       if (!d.dragged && !d.add) setSel([], d.room ? d.room.id : null);                // a plain click on empty floor: the room, or nothing
       drawAll(); return;
-    } else if (d.kind === 'move' || d.kind === 'moveRoom') { if (d.kind === 'moveRoom' || d.any) changed(); else { drawAll(); return; } }
+    } else if (d.kind === 'cast') { changed(); drawLists(); drawPlan(); return; }
+    else if (d.kind === 'move' || d.kind === 'moveRoom') { if (d.kind === 'moveRoom' || d.any) changed(); else { drawAll(); return; } }
     drawAll(); preview();
   });
   cv.addEventListener('pointerleave', () => { st.hover = null; if (st.placing) drawPlan(); });
@@ -684,26 +698,36 @@ export function render(root, app) {
 
   // ---- characters: who stands where the game puts Tom Nook, Honma and Takumi (it can only swap them, not place new ones)
   const STAFF = ['Tom Nook', 'Honma', 'Takumi'];
+  const VANILLA = { 'Tom Nook': [9, 12], Honma: [5, 7], Takumi: [7, 12] };          // where the game puts them (seen in the game)
+  const reach = (T) => { const seen = new Set([T.id]), todo = [T.id], out = []; while (todo.length) { const id = todo.shift(), x = P.interiors.find((i) => i.id === id); if (!x) continue; out.push(x); for (const l of x.links || []) if (!seen.has(l.to)) { seen.add(l.to); todo.push(l.to); } } return out; };
+  // the cast lives on the entrance scene of the building (scripts are made from it), whichever room is being edited
+  const castOwner = (sc) => P.interiors.find((T) => P.buildings.some((b) => b.interior === T.id) && reach(T).some((x) => x.id === sc.id)) || sc;
+  // the characters shown (and draggable) on the plan of `sc`
+  const castMarks = (sc) => { const out = []; for (const T of P.interiors) for (const c of T.cast || []) { if (!c.with) continue; if (c.room ? c.room !== sc.id : !reach(T).some((x) => x.id === sc.id)) continue; const d = VANILLA[c.replace] || [8, 8]; out.push({ c, x: c.x ?? d[0], y: c.y ?? d[1] }); } return out; };
   function castCard(sc) {
-    sc.cast = sc.cast || [];
+    const owner = castOwner(sc); owner.cast = owner.cast || [];
     const people = () => Object.keys({ ...(st.knownActors || {}), ...P.actors }).filter((n) => !['Player', 'Rain', 'Snow', 'Sakura', 'Paper'].includes(n));
     if (!st.knownActors) get('/api/script/reference').then((r) => { st.knownActors = r.actors || {}; if (st.tab === 'add') drawLists(); });
-    const used = P.buildings.filter((b) => b.interior === sc.id);
-    const rooms = (() => { const seen = new Set([sc.id]), todo = [sc.id], out = []; while (todo.length) { const x = P.interiors.find((i) => i.id === todo.shift()); if (!x) continue; out.push(x); for (const l of x.links || []) if (!seen.has(l.to)) { seen.add(l.to); todo.push(l.to); } } return out; })();
+    const used = P.buildings.filter((b) => b.interior === owner.id);
+    const rooms = reach(owner);
     const row = (c) => h('div', { class: 'card', style: { padding: '8px', display: 'grid', gap: '6px' } },
-      h('div', { class: 'grid2' }, field('Use the place of', select(STAFF, c.replace, (v) => { c.replace = v; changed(); })), field('Put there', select([['', '(nobody: remove them)'], ...people()], c.with || '', (v) => { c.with = v; changed(); }))),
-      field('In which room', select([['', 'every room of the building'], ...rooms.map((r) => [r.id, r.title || r.id])], c.room || '', (v) => { c.room = v; changed(); }), 'Each room is a separate load of the place, so someone can be in one room and not in another.'),
-      h('div', { class: 'grid2' }, field('Tile x (empty = the game’s spot)', numInput(c.x ?? '', (v) => { c.x = v; changed(); }, { min: 0, max: 15 })), field('Tile y', numInput(c.y ?? '', (v) => { c.y = v; changed(); }, { min: 0, max: 15 }))),
+      h('div', { class: 'grid2' }, field('Use the place of', select([['spare', 'a spare place (nobody is replaced)'], ...STAFF.map((n) => [n, n + ' (replaces them)'])], c.replace, (v) => { c.replace = v; changed(); drawPlan(); })), field('Put there', select([['', '(nobody: remove them)'], ...people()], c.with || '', (v) => { c.with = v; changed(); drawPlan(); }))),
+      field('In which room', select([['', 'every room of the building'], ...rooms.map((r) => [r.id, r.title || r.id])], c.room || '', (v) => { c.room = v; changed(); drawPlan(); }), 'Each room is a separate load of the place, so someone can be in one room and not in another.'),
+      h('div', { class: 'row', style: { gap: '8px' } }, h('span', { class: 'dim', style: { fontSize: '12px' } }, c.x != null ? 'Stands on tile ' + c.x + ', ' + c.y : 'Stands where the game puts them'), h('div', { class: 'grow' }),
+        h('button', { class: 'small', onclick: () => { if (c.room && c.room !== sc.id) { st.sid = c.room; drawAll(); preview.now(); } if (c.x == null) { const d = VANILLA[c.replace] || [8, 8]; c.x = d[0]; c.y = d[1]; changed(); drawPlan(); } toast('Drag the purple marker on the plan', 'info', 2500); } }, 'Place on the plan'),
+        c.x != null ? h('button', { class: 'small ghost', onclick: () => { delete c.x; delete c.y; changed(); drawPlan(); drawLists(); } }, 'Game’s spot') : null),
       h('div', { class: 'grid2' }, field('From (empty = always)', h('input', { type: 'time', value: c.from || '', onchange: (e) => { c.from = e.target.value; changed(); } })),
         field('Until', h('input', { type: 'time', value: c.to || '', onchange: (e) => { c.to = e.target.value; changed(); } }))),
-      checkbox(c.away, (v) => { c.away = v; changed(); }, 'Not at their usual place meanwhile (hidden elsewhere in the game, e.g. the town hall)'),
-      h('button', { class: 'small ghost danger', onclick: () => { sc.cast.splice(sc.cast.indexOf(c), 1); changed(); drawLists(); } }, 'Remove'));
+      checkbox(c.away, (v) => { c.away = v; changed(); }, 'Not at their usual place meanwhile (hidden elsewhere in the game, e.g. the town hall) during the hours above'),
+      h('div', { class: 'grid2' }, field('Wears here (a villager with outfits)', select([['', '(their normal clothes)'], ...P.villagers.filter((v) => (v.outfits || []).length).map((v) => [v.id, v.id])], c.villager || '', (v) => { c.villager = v; c.outfit = ((P.villagers.find((x) => x.id === v) || {}).outfits || [{}])[0].id || ''; changed(); drawLists(); })),
+        field('Outfit', select([['', '—'], ...(((P.villagers.find((x) => x.id === c.villager) || {}).outfits) || []).map((o) => [o.id, o.name || o.id])], c.outfit || '', (v) => { c.outfit = v; changed(); }), 'Elsewhere (e.g. the town hall) they keep their normal clothes.')),
+      h('button', { class: 'small ghost danger', onclick: () => { owner.cast.splice(owner.cast.indexOf(c), 1); changed(); drawLists(); drawPlan(); } }, 'Remove'));
     return h('div', { class: 'card' }, h('h3', {}, 'Characters'),
-      h('div', { class: 'dim', style: { fontSize: '12px', marginBottom: '6px' } }, 'The game creates three people in this room: Tom Nook, Honma and Takumi. A mod cannot create a fourth, but each of those three can be turned into anyone, and put on any tile. To ADD Isabelle and keep Tom Nook, give her Honma’s or Takumi’s place (and remove the one you do not want). Hours are optional: e.g. only after 22:00.'),
+      h('div', { class: 'dim', style: { fontSize: '12px', marginBottom: '6px' } }, 'A mod cannot create a character from nothing; it can only change something the game creates anyway. “A spare place” uses one of the furniture pieces the game creates in this room, so NOBODY is replaced: a character appears there instead (the first spare place is the first furniture the game creates, and so on). The three people the game creates (Tom Nook, Honma, Takumi) can also be swapped or removed. How many spare places a room has is not known until it is tested in the game. Characters show as purple markers on the plan: drag them to choose where they stand; grey tags show where the game puts its own three.'),
       used.length ? null : h('div', { class: 'warn-box', style: { marginBottom: '6px' } }, 'No building uses this interior yet, so nothing happens: give a building this interior in the Buildings tab.'),
-      sc.cast.map(row),
-      h('button', { onclick: () => { sc.cast.push({ replace: 'Honma', with: 'Isabelle', x: 8, y: 7, from: '', to: '', away: false }); changed(); drawLists(); } }, '+ Add a character'),
-      h('div', { class: 'dim', style: { fontSize: '11px', marginTop: '6px' } }, 'Untested in the game: the swap is done when the building loads (it is compiled into the mod as a script when you export).'));
+      owner.cast.map(row),
+      h('button', { onclick: () => { owner.cast.push({ replace: 'spare', with: 'Isabelle', room: owner === sc ? '' : sc.id, x: 8, y: 8, from: '', to: '', away: false }); changed(); drawLists(); drawPlan(); } }, '+ Add a character'),
+      h('div', { class: 'dim', style: { fontSize: '11px', marginTop: '6px' } }, 'Untested in the game: the swap is done when the building loads (it is compiled into the mod as a script when you export; see it in the Scripts tab).'));
   }
 
   // ---- your own 3D models (Blender exports)

@@ -14,13 +14,16 @@ export function render(root, app) {
   const left = h('div', { class: 'pane' }), mid = h('div', { class: 'pane', style: { display: 'flex', flexDirection: 'column', padding: 0 } }), right = h('div', { class: 'pane pad' });
   mount(root, h('div', { class: 'page-head' }, h('h2', {}, 'Scripts'), h('p', {}, 'Python that reacts to the game: swap clothes, hide or replace villagers, hook any function. It is checked here, before the game ever sees it.')),
     h('div', { class: 'split', style: { gridTemplateColumns: '240px minmax(420px,1fr) 400px' } }, left, mid, right));
-  const cur = () => P.scripts.find((x) => x.id === st.sel);
+  const CAST = '@characters';
+  st.gen = '';
+  const cur = () => st.sel === CAST ? { id: CAST, name: 'Characters (made from the Interiors tab)', enabled: true, code: st.gen, generated: true } : P.scripts.find((x) => x.id === st.sel);
+  async function loadGenerated() { try { await saveNow(); st.gen = (await get('/api/script/generated?project=' + S.pid)).source || ''; } catch (e) { st.gen = ''; } }
 
   // ---- list
   function drawLeft() {
-    mount(left, h('div', { class: 'list' }, P.scripts.map((sc) => h('div', { class: 'item' + (sc.id === st.sel ? ' on' : ''), onclick: () => { st.sel = sc.id; st.result = null; drawAll(); check.now(); } },
+    mount(left, h('div', { class: 'list' }, st.gen ? h('div', { class: 'item' + (st.sel === CAST ? ' on' : ''), onclick: () => { st.sel = CAST; st.result = null; drawAll(); check.now(); } }, h('span', {}, 'Characters'), h('span', { class: 'sub' }, h('span', { class: 'chip' }, 'from Interiors'))) : null, P.scripts.map((sc) => h('div', { class: 'item' + (sc.id === st.sel ? ' on' : ''), onclick: () => { st.sel = sc.id; st.result = null; drawAll(); check.now(); } },
         h('span', {}, sc.name || sc.id), h('span', { class: 'sub' }, sc.enabled === false ? h('span', { class: 'chip' }, 'off') : null)))),
-      P.scripts.length ? null : h('div', { class: 'empty' }, 'No script yet'),
+      P.scripts.length || st.gen ? null : h('div', { class: 'empty' }, 'No script yet'),
       h('div', { style: { padding: '10px', display: 'grid', gap: '6px' } }, h('button', { class: 'primary', onclick: newScript }, '+ New script'),
         h('button', { onclick: showGuide }, 'How scripts work…')),
       actorsCard());
@@ -66,7 +69,7 @@ export function render(root, app) {
     })));
   }
   ta.addEventListener('scroll', drawGutter);
-  ta.addEventListener('input', () => { const sc = cur(); if (!sc) return; sc.code = ta.value; changed(); drawGutter(); check(); });
+  ta.addEventListener('input', () => { const sc = cur(); if (!sc || sc.generated) return; sc.code = ta.value; changed(); drawGutter(); check(); });
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Tab') { e.preventDefault(); const a = ta.selectionStart; ta.setRangeText('    ', a, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); }
     if (e.key === 'Enter') {                       // keep the indentation (and add one after a colon)
@@ -77,14 +80,14 @@ export function render(root, app) {
   function drawMid() {
     const sc = cur();
     if (!sc) { mount(mid, h('div', { class: 'empty' }, 'Create a script, or start from an example: “+ New script”.')); return; }
-    mount(head, textInput(sc.name || '', (v) => { sc.name = v; changed(); drawLeft(); }, { style: { width: '220px' }, placeholder: 'Name' }),
-      checkbox(sc.enabled !== false, (v) => { sc.enabled = v; changed(); drawLeft(); }, 'Enabled'),
+    mount(head, sc.generated ? h('b', {}, sc.name) : textInput(sc.name || '', (v) => { sc.name = v; changed(); drawLeft(); }, { style: { width: '220px' }, placeholder: 'Name' }),
+      sc.generated ? null : checkbox(sc.enabled !== false, (v) => { sc.enabled = v; changed(); drawLeft(); }, 'Enabled'),
       h('div', { class: 'grow' }),
       h('span', { class: 'chip ' + (!st.result ? '' : st.result.ok ? 'ok' : 'err') }, !st.result ? 'checking…' : st.result.ok ? '✓ ready to export' : st.result.diagnostics.filter((d) => d.severity === 'error').length + ' problem(s)'),
       h('button', { class: 'small', onclick: () => check.now() }, 'Check'),
-      h('button', { class: 'small danger', onclick: async () => { if (!await confirmBox('Delete the script “' + (sc.name || sc.id) + '”?', 'Delete')) return; P.scripts.splice(P.scripts.indexOf(sc), 1); st.sel = P.scripts[0] ? P.scripts[0].id : null; changed(); drawAll(); } }, 'Delete'));
-    ta.value = sc.code || '';
-    mount(mid, head, wrap);
+      sc.generated ? null : h('button', { class: 'small danger', onclick: async () => { if (!await confirmBox('Delete the script “' + (sc.name || sc.id) + '”?', 'Delete')) return; P.scripts.splice(P.scripts.indexOf(sc), 1); st.sel = P.scripts[0] ? P.scripts[0].id : null; changed(); drawAll(); } }, 'Delete'));
+    ta.value = sc.code || ''; ta.readOnly = !!sc.generated;
+    mount(mid, head, sc.generated ? h('div', { class: 'info-box', style: { margin: '8px' } }, 'This script is written for you from the Characters card (Interiors tab > Add). Change the characters there; it is compiled into the mod with your other scripts.') : null, wrap);
     drawGutter();
   }
 
@@ -142,5 +145,6 @@ export function render(root, app) {
   }, 600);
   function drawMid_head() { const c = head.querySelector('.chip'); if (c && st.result) { c.className = 'chip ' + (st.result.ok ? 'ok' : 'err'); c.textContent = st.result.ok ? '✓ ready to export' : st.result.diagnostics.filter((d) => d.severity === 'error').length + ' problem(s)'; } }
   function drawAll() { drawLeft(); drawMid(); drawRight(); }
+  loadGenerated().then(() => { if (!st.sel && st.gen) st.sel = CAST; drawAll(); if (cur()) check.now(); });
   drawAll(); if (cur()) check.now();
 }

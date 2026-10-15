@@ -8,25 +8,53 @@ from ..script import compiler, context
 NEEDS_TEST = "uses %s(), which is implemented but whose effect in the game has not been seen yet"
 
 
+SPARE = "spare"            # a spare slot: one of the furniture actors the game creates in the room (no character is replaced)
+FTR_FIRST, FTR_LAST = 0xBB, 0xEB
+
+
 def cast_source(proj):
-    """Python for the "Characters" cards of the interiors: who stands where Tom Nook (or Honma, Takumi) would, and when.
-    sc["cast"] = [{"replace": "Tom Nook", "with": "Isabelle", "from": "22:00", "to": "06:00", "away": true}]"""
-    out = []
-    n = 0
+    """Python for the "Characters" cards of the interiors. Each entry takes over a slot of the room:
+    "Tom Nook" / "Honma" / "Takumi" (the three people the game creates; the person there is replaced or removed) or "spare"
+    (one of the furniture actors the game creates: nobody is replaced, a character appears in its place).
+    sc["cast"] = [{"replace": "Honma"|"spare", "with": "Isabelle", "room": "", "x": 8, "y": 7, "from": "22:00", "to": "06:00",
+                   "away": true, "villager": "sza", "outfit": "night"}]"""
+    from ..script import context
+    out, n = [], 0
     for sc in proj.get("interiors", []):
-        for c in sc.get("cast") or []:
-            blds = [x["id"] for x in proj.get("buildings", []) if x.get("interior") == sc["id"]]
-            for bid in blds:
+        entries = sc.get("cast") or []
+        for bld in [x for x in proj.get("buildings", []) if x.get("interior") == sc["id"]]:
+            bid, spares = bld["id"], []
+            for c in entries:
                 n += 1
                 when = ' and time_between("%s", "%s")' % (c["from"], c["to"]) if c.get("from") and c.get("to") else ""
-                here = 'in_room("%s", "%s")' % (bid, c["room"]) if c.get("room") else 'in_building("%s")' % bid
-                body = '        become("%s")\n' % c["with"] if c.get("with") else "        hide_actor()\n"
+                here = ('in_room("%s", "%s")' % (bid, c["room"]) if c.get("room") else 'in_building("%s")' % bid) + when
+                body = ""
+                if c.get("with") and c.get("villager") and c.get("outfit"):
+                    body += '        wear("%s", "%s")\n' % (c["villager"], c["outfit"])
+                body += '        become("%s")\n' % c["with"] if c.get("with") else "        hide_actor()\n"
                 if c.get("with") and c.get("x") is not None and c.get("y") is not None:
                     body += "        place_actor(%d, %d)\n" % (int(c["x"]), int(c["y"]))
-                out.append('@on_actor("%s")\ndef cast_%d():\n    if %s%s:\n%s' % (c["replace"], n, here, when, body))
-                if c.get("away") and c.get("with"):
-                    cond = 'not in_building("%s")%s' % (bid, when)
-                    out.append('@on_actor("%s")\ndef cast_%d_is_away():\n    if %s:\n        hide_actor()\n' % (c["with"], n, cond.replace("not in_building", "not in_building", 1)))
+                if c.get("replace") == SPARE:
+                    spares.append((here, body))
+                else:
+                    out.append('@on_actor("%s")\ndef cast_%d():\n    if %s:\n%s' % (c["replace"], n, here, body))
+                if c.get("with") and (c.get("away") or (c.get("villager") and c.get("outfit"))):
+                    lines = ""
+                    if c.get("villager") and c.get("outfit"):
+                        lines += '    if not in_building("%s"):\n        wear_default("%s")\n' % (bid, c["villager"])      # elsewhere she keeps her usual clothes
+                    if c.get("away"):
+                        lines += '    if not in_building("%s")%s:\n        hide_actor()\n' % (bid, when)
+                    out.append('@on_actor("%s")\ndef cast_%d_elsewhere():\n%s' % (c["with"], n, lines))
+            if spares:
+                var = "spare_" + bid
+                lines = '    n = get_var("%s")\n    set_var("%s", n + 1)\n' % (var, var)
+                for k, (here, body) in enumerate(spares):
+                    lines += "    %s n == %d and %s:\n%s" % ("if" if k == 0 else "elif", k, here, body.replace("        ", "        ", 1))
+                out.append("@on_actor(0x%x, last=0x%x)\ndef spare_slots_%s():\n%s" % (FTR_FIRST, FTR_LAST, bid, lines))
+                out.append('@on_enter("%s")\ndef reset_spare_slots_%s():\n    set_var("%s", 0)\n' % (bid, bid, var))
+                from ..script import context as ctxmod
+                for r in ctxmod.rooms_of(proj, bld):
+                    out.append('@on_room("%s", "%s")\ndef reset_spare_slots_%s_%s():\n    set_var("%s", 0)\n' % (bid, r, bid, r, var))
     return "from acnl import *\n\n" + "\n".join(out) if out else ""
 
 
@@ -58,7 +86,7 @@ def compile(b):
     loaded = vm.Loaded(blob)
     for h, hd in zip(merged.handlers, loaded.handlers):
         from ..script.check import timeline
-        for seg in timeline(loaded, hd, merged.strings[h.s1] if h.s1 != 0xFFFF else None, merged.strings[h.s2] if h.s2 != 0xFFFF else None):
+        for seg in timeline(loaded, hd, merged.strings[h.s1] if h.s1 != 0xFFFF else None, merged.strings[h.s2] if h.s2 != 0xFFFF and h.kind in ("enter", "room") else None):
             if seg["error"]:
                 raise ValueError("script handler %s would fail at %s-%s: %s" % (h.name, seg["start"], seg["end"], seg["error"]))
     b.add("acnlb.script", blob)

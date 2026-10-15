@@ -341,6 +341,13 @@ def script_examples(req, q):
     return docs.examples(project.load(b["project"]) if b.get("project") else None)
 
 
+@route("GET", "/api/script/generated")
+def script_generated(req, q):
+    """the Python made from the Characters cards of the interiors"""
+    from .features import scripts
+    return {"source": scripts.cast_source(project.load((q.get("project") or [""])[0]))}
+
+
 @route("GET", "/api/script/stub")
 def script_stub(req, q):
     from .script import docs

@@ -15,7 +15,7 @@ def trigger_text(h, prog):
     if h.kind == "room":
         return DESC["room"] % (s[h.s2], s[h.s1])
     if h.kind == "actor":
-        return DESC["actor"] % ("0x%x" % h.num)
+        return DESC["actor"] % (("0x%x" % h.num) if h.s2 == 0xFFFF else "0x%x to 0x%x" % (h.num, h.s2))
     return DESC["call"] % h.num
 
 
@@ -49,7 +49,7 @@ def check(source, ctx=None):
         res["bytes"] = len(blob)
         for h, hd in zip(prog.handlers, loaded.handlers):
             b = prog.strings[h.s1] if h.s1 != 0xFFFF else None
-            r = prog.strings[h.s2] if h.s2 != 0xFFFF else None
+            r = prog.strings[h.s2] if h.s2 != 0xFFFF and h.kind in ("enter", "room") else None
             tl = timeline(loaded, hd, b, r)
             for seg in tl:
                 if seg["error"]:
