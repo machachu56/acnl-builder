@@ -19,10 +19,11 @@ def cast_source(proj):
             for bid in blds:
                 n += 1
                 when = ' and time_between("%s", "%s")' % (c["from"], c["to"]) if c.get("from") and c.get("to") else ""
+                here = 'in_room("%s", "%s")' % (bid, c["room"]) if c.get("room") else 'in_building("%s")' % bid
                 body = '        become("%s")\n' % c["with"] if c.get("with") else "        hide_actor()\n"
                 if c.get("with") and c.get("x") is not None and c.get("y") is not None:
                     body += "        place_actor(%d, %d)\n" % (int(c["x"]), int(c["y"]))
-                out.append('@on_actor("%s")\ndef cast_%d():\n    if in_building("%s")%s:\n%s' % (c["replace"], n, bid, when, body))
+                out.append('@on_actor("%s")\ndef cast_%d():\n    if %s%s:\n%s' % (c["replace"], n, here, when, body))
                 if c.get("away") and c.get("with"):
                     cond = 'not in_building("%s")%s' % (bid, when)
                     out.append('@on_actor("%s")\ndef cast_%d_is_away():\n    if %s:\n        hide_actor()\n' % (c["with"], n, cond.replace("not in_building", "not in_building", 1)))

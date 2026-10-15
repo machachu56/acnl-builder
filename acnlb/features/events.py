@@ -1,4 +1,4 @@
-"""Events: scripted conversations.
+"""Events: scripted conversations (Tom Nook when the player walks in; Isabelle when the player talks to her).
 
 {"id": "welcome", "type": "enter_talk", "building": "baisodrome", "npc": "Tanukichi",
  "steps": [{"text": {"en": "...", "fr": "..."}}, ...], "goodbye": {"en": "..."}}
@@ -16,7 +16,11 @@ from modkit import msbt  # noqa: E402
 
 FLOWS = {
     "Tanukichi": dict(talk="/Script/Talk/NPC_Tanukichi.umsbt", flow="/Script/Flow/NPC_Tanukichi_In.msbf", first=4, goodbye="001",
-                      label="Tom Nook (Nook's Homes)"),
+                      label="Tom Nook (Nook's Homes)", when="enters"),
+    # Isabelle's counter conversation (the flow she runs at the town hall; its message 143 is "Well, if it isn't Mayor ...").
+    # In your building it plays when the player talks to her there (needs her to stand there: Interiors > Characters).
+    "Isabelle": dict(talk="/Script/Talk/NPC_Secretary.umsbt", flow="/Script/Flow/NPC_Secretary_Office.msbf", first=4, goodbye=None,
+                     label="Isabelle (the town hall counter's conversation)", when="talks"),
 }
 END = 0xFFFF
 
@@ -49,7 +53,7 @@ def compile(b):
         f = FLOWS[npc]
         nodes = message_nodes(npc)
         steps = [s for s in ev["steps"] if any((s.get("text") or {}).values())]
-        if any((ev.get("goodbye") or {}).values()):
+        if f["goodbye"] and any((ev.get("goodbye") or {}).values()):
             extra.append({"file": f["talk"], "label": f["goodbye"], "variant": bld["id"], "text": ev["goodbye"]})
         if not steps:
             continue

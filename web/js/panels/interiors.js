@@ -689,8 +689,10 @@ export function render(root, app) {
     const people = () => Object.keys({ ...(st.knownActors || {}), ...P.actors }).filter((n) => !['Player', 'Rain', 'Snow', 'Sakura', 'Paper'].includes(n));
     if (!st.knownActors) get('/api/script/reference').then((r) => { st.knownActors = r.actors || {}; if (st.tab === 'add') drawLists(); });
     const used = P.buildings.filter((b) => b.interior === sc.id);
+    const rooms = (() => { const seen = new Set([sc.id]), todo = [sc.id], out = []; while (todo.length) { const x = P.interiors.find((i) => i.id === todo.shift()); if (!x) continue; out.push(x); for (const l of x.links || []) if (!seen.has(l.to)) { seen.add(l.to); todo.push(l.to); } } return out; })();
     const row = (c) => h('div', { class: 'card', style: { padding: '8px', display: 'grid', gap: '6px' } },
       h('div', { class: 'grid2' }, field('Use the place of', select(STAFF, c.replace, (v) => { c.replace = v; changed(); })), field('Put there', select([['', '(nobody: remove them)'], ...people()], c.with || '', (v) => { c.with = v; changed(); }))),
+      field('In which room', select([['', 'every room of the building'], ...rooms.map((r) => [r.id, r.title || r.id])], c.room || '', (v) => { c.room = v; changed(); }), 'Each room is a separate load of the place, so someone can be in one room and not in another.'),
       h('div', { class: 'grid2' }, field('Tile x (empty = the game’s spot)', numInput(c.x ?? '', (v) => { c.x = v; changed(); }, { min: 0, max: 15 })), field('Tile y', numInput(c.y ?? '', (v) => { c.y = v; changed(); }, { min: 0, max: 15 }))),
       h('div', { class: 'grid2' }, field('From (empty = always)', h('input', { type: 'time', value: c.from || '', onchange: (e) => { c.from = e.target.value; changed(); } })),
         field('Until', h('input', { type: 'time', value: c.to || '', onchange: (e) => { c.to = e.target.value; changed(); } }))),

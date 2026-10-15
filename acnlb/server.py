@@ -443,7 +443,7 @@ def serve(port=8765, open_browser=True):
 @route("GET", "/api/events/flows")
 def event_flows(req, q):
     from .features import events as ev
-    return {k: {"label": v["label"], "nodes": [l for n, l in ev.message_nodes(k)]} for k, v in ev.FLOWS.items()}
+    return {k: {"label": v["label"], "when": v.get("when"), "goodbye": bool(v["goodbye"]), "nodes": [l for n, l in ev.message_nodes(k)]} for k, v in ev.FLOWS.items()}
 
 
 @route("POST", "/api/launch")

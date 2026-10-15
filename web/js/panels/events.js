@@ -10,7 +10,7 @@ export function render(root, app) {
   const P = S.project;
   const st = { sel: P.events[0] ? P.events[0].id : null, lang: 'en', focus: null, flows: null };
   const left = h('div', { class: 'pane' }), main = h('div', { class: 'pane pad' }), side = h('div', { class: 'pane pad' });
-  mount(root, h('div', { class: 'page-head' }, h('h2', {}, 'Events'), h('p', {}, 'Scripted conversations that play when the player walks into one of your buildings.')),
+  mount(root, h('div', { class: 'page-head' }, h('h2', {}, 'Events'), h('p', {}, 'Scripted conversations inside your buildings: Tom Nook when the player walks in, Isabelle when the player talks to her.')),
     h('div', { class: 'split', style: { gridTemplateColumns: '250px minmax(420px,1fr) 340px' } }, left, main, side));
   const ev = () => P.events.find((e) => e.id === st.sel);
 
@@ -45,14 +45,14 @@ export function render(root, app) {
     goodbye.addEventListener('input', () => { e.goodbye = e.goodbye || {}; if (goodbye.value) e.goodbye[st.lang] = goodbye.value; else delete e.goodbye[st.lang]; changed(); showPreview(goodbye.value); });
     goodbye.addEventListener('focus', () => { st.focus = goodbye; showPreview(goodbye.value); });
     mount(main,
-      h('div', { class: 'row wrap' }, h('b', {}, 'When the player enters'), (() => { bsel.style.width = '200px'; return bsel; })(), h('span', { class: 'dim' }, 'the character says:'), h('span', { class: 'chip' }, (st.flows[e.npc] || {}).label || e.npc),
+      h('div', { class: 'row wrap' }, h('b', {}, (st.flows[e.npc] || {}).when === 'talks' ? 'When the player talks to her in' : 'When the player enters'), (() => { bsel.style.width = '200px'; return bsel; })(), h('span', { class: 'dim' }, 'the character says:'), (() => { const s = select(Object.entries(st.flows).map(([k, v]) => [k, v.label]), e.npc, (v) => { e.npc = v; e.steps = e.steps.slice(0, (st.flows[v] || { nodes: [] }).nodes.length); changed(); drawMain(); }); s.style.width = '260px'; return s; })(),
         h('div', { class: 'grow' }), h('button', { class: 'small ghost danger', onclick: async () => { if (await confirmBox('Delete this conversation?', 'Delete')) { P.events.splice(P.events.indexOf(e), 1); st.sel = P.events[0] ? P.events[0].id : null; changed(); drawLeft(); drawMain(); } } }, 'Delete')),
       b && !b.interior ? h('div', { class: 'warn-box', style: { marginTop: '10px' } }, 'This building has no interior of its own: the speech would also play in the real Nook’s Homes. Give it an interior in Buildings → Inside.') : null,
       tabs,
       h('div', { class: 'toolbar', style: { gap: '4px', border: '1px solid var(--line)', borderRadius: '6px', marginBottom: '10px' } }, h('span', { class: 'dim' }, 'Insert'), CODES.map(([l, c]) => h('button', { class: 'small', title: c, onclick: () => { const t = st.focus; if (!t) { toast('Click in a message first', 'info'); return; } t.setRangeText(c, t.selectionStart, t.selectionEnd, 'end'); t.dispatchEvent(new Event('input')); t.focus(); } }, l))),
       h('div', { class: 'col' }, (e.steps || []).map(stepCard),
         e.steps.length < maxSteps ? h('button', { onclick: () => { e.steps.push({ text: { en: '' } }); changed(); drawMain(); } }, '+ Add a message (' + e.steps.length + '/' + maxSteps + ')') : h('div', { class: 'dim' }, 'This character’s script allows ' + maxSteps + ' messages.'),
-        h('div', { class: 'card' }, h('h3', {}, 'Goodbye'), goodbye)));
+        (st.flows[e.npc] || {}).goodbye ? h('div', { class: 'card' }, h('h3', {}, 'Goodbye'), goodbye) : h('div', { class: 'info-box' }, 'This replaces her whole counter conversation inside the building with the messages above, then it ends. She needs to stand in the building: Interiors > Characters. Untested in the game.')));
     mount(side, h('div', { class: 'panel-title' }, 'Preview'), h('div', { class: 'dim' }, 'Click in a message to see how it looks in the game.'));
     function showPreview(t) { mount(side, h('div', { class: 'panel-title' }, 'Message window'), previewBoxes(t || ' ')); }
   }
