@@ -75,6 +75,14 @@ def apply(data, edits):
     return join_file(out, single)
 
 
+def variant_name(variant):
+    """the RomFS variant of a text edit: a building's id means the variant of that building (its interior and text),
+    "ev_<event>" is a conversation a script switches on (see events), nothing means everywhere"""
+    if not variant:
+        return None
+    return variant if variant.startswith("ev_") else "b_" + variant
+
+
 def compile(b):
     groups = {}
     for e in b.proj["text"]:
@@ -86,7 +94,7 @@ def compile(b):
             for lang, s in e["text"].items():
                 for msg in check(s):
                     b.warn("%s %s [%s]: %s" % (path.rsplit("/", 1)[-1], e["label"], lang, msg))
-        vname = "b_" + variant if variant else None      # a variant belongs to a building (its interior)
+        vname = variant_name(variant)
         try:
             data = apply(b.game(path, vname), edits)
         except KeyError as ex:

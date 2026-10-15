@@ -164,6 +164,7 @@ def native(prog, nid, a, w, S):
         w.trace.append("log(%r%s)" % (S[a[0]], ", %d" % a[1] if a[1] else "")); return None
     if nm == "wear": w.trace.append("wear(%s, %s)" % (S[a[0]], S[a[1]])); return None
     if nm == "wear_default": w.trace.append("wear_default(%s)" % S[a[0]]); return None
+    if nm == "conversation_on": return None
     if nm == "variant_on": w.trace.append("variant_on(%s)" % S[a[0]]); return None
     if nm == "variant_off": w.trace.append("variant_off(%s)" % S[a[0]]); return None
     if nm == "hide_actor": w.hidden = True; w.trace.append("hide_actor()"); return None

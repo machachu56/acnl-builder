@@ -51,6 +51,8 @@ NATIVES = [
     N(14, "wear_default", [("villager", "villager")], None, "needs-test", ("enter", "leave", "room", "actor"), "Back to the villager's normal clothes (the default outfit, or the game's).", 'wear_default("ant00")'),
     N(15, "variant_on", [("name", "str")], None, "needs-test", ANY, "Switch on a RomFS variant of your mod by name (advanced: outfits and buildings have their own).", ""),
     N(16, "variant_off", [("name", "str")], None, "needs-test", ANY, "Switch a RomFS variant off.", ""),
+    N(30, "conversation_on", [("conversation", "conversation")], None, "needs-test", ANY, "Switch on a conversation you wrote in the Events tab whose scope is “only when a script turns it on”: from now on the game's character says your lines. Takes effect the next time that conversation starts.", 'conversation_on("isabelle_hello")'),
+    N(31, "conversation_off", [("conversation", "conversation")], None, "needs-test", ANY, "Switch that conversation off again (the game's own lines return).", 'conversation_off("isabelle_hello")'),
     # ---- actors (the people and objects the game creates when a place loads)
     N(17, "hide_actor", [], None, "needs-test", ("actor",), "In an @on_actor handler: the game does not create this actor at all (the same hook as “No exhibits”). The villager is simply not there.", "@on_actor(\"Isabelle\")\ndef not_at_work():\n    if time_between(\"22:00\", \"06:00\"):\n        hide_actor()"),
     N(18, "become", [("actor", "actor")], None, "needs-test", ("actor",), "In an @on_actor handler: create another actor in this one's place (e.g. Isabelle where Tom Nook would stand).", 'become("Isabelle")'),

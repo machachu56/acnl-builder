@@ -443,7 +443,29 @@ def serve(port=8765, open_browser=True):
 @route("GET", "/api/events/flows")
 def event_flows(req, q):
     from .features import events as ev
-    return {k: {"label": v["label"], "when": v.get("when"), "goodbye": bool(v["goodbye"]), "nodes": [l for n, l in ev.message_nodes(k)]} for k, v in ev.FLOWS.items()}
+    return {k: {"flow": v["flow"], "label": v["label"], "when": v.get("when"), "goodbye": bool(v["goodbye"]), "nodes": [l for n, l in ev.message_nodes(k)]} for k, v in ev.FLOWS.items()}
+
+
+@route("GET", "/api/events/flowlist")
+def event_flowlist(req, q):
+    """every conversation of the game that can be rewritten, filtered by ?q="""
+    from .features import events as ev
+    t = (q.get("q") or [""])[0].lower()
+    named = {v["flow"]: k for k, v in ev.FLOWS.items()}
+    return [dict(x, npc=named.get(x["flow"])) for x in ev.flow_list() if t in x["name"].lower()][:200]
+
+
+@route("GET", "/api/events/flow")
+def event_flow(req, q):
+    """the message nodes of one conversation with the game's own text"""
+    from .features import events as ev
+    flow = (q.get("flow") or [""])[0]
+    named = next((v for v in ev.FLOWS.values() if v["flow"] == flow), None)
+    talk = named["talk"] if named else ev.talk_for(flow)
+    if not talk:
+        raise ApiError("no text file for this conversation")
+    return {"flow": flow, "talk": talk, "goodbye": bool(named and named["goodbye"]),
+            "nodes": ev.flow_nodes(flow, talk, named and named["first"], named and named["goodbye"])}
 
 
 @route("POST", "/api/launch")

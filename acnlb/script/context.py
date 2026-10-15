@@ -51,4 +51,5 @@ def build_ctx(proj):
     return compiler.Ctx(
         buildings={b["id"]: rooms_of(proj, b) for b in proj.get("buildings", [])},
         villagers={v["id"]: [o["id"] for o in v.get("outfits") or []] for v in proj.get("villagers", [])},
-        actors=actors, is_function=is_function)
+        actors=actors, is_function=is_function,
+        conversations=[e["id"] for e in proj.get("events", []) if e.get("scope") == "script"])

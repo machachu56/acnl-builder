@@ -91,6 +91,26 @@ def log_door_lookups():
 An address must be the start of a function; Builder checks it against the game's code and refuses others.
 [HOOKS.md](HOOKS.md) explains how to find the address of the thing you want (the weather, a face, a shirt).
 
+## Events and scripts together
+
+* **Events tab = what is said.** Pick any conversation of the game (the secretary's counter talk, Tom Nook's welcome, a birthday…) and
+  either *say your own messages* or *rewrite the game's own lines* (its Yes/No questions and branches stay). Choose where it applies:
+  **inside a building**, **everywhere**, or **only when a script switches it on**.
+* **Scripts = when, and what else changes.** For a conversation whose scope is "only when a script switches it on", a script decides when:
+
+```python
+@on_enter("baisodrome")
+def morning_or_night():
+    if time_between("22:00", "06:00"):
+        conversation_on("isabelle_night")     # her lines from the Events tab
+    else:
+        conversation_off("isabelle_night")    # back to the game's own lines
+```
+* The game decides *which* conversation starts and when (talking to someone, a visit…); events change what it says, scripts change
+  which version is active. A conversation switches on the next time it starts.
+* **Not possible yet:** brand-new questions with your own Yes/No branches (a conversation whose structure you design), a script
+  trigger for "the player talked to X", showing text from a script. Rewriting an existing conversation keeps the game's questions.
+
 ## Example: Isabelle's night shift (for the Baisodrome)
 
 The **Isabelle's night shift** example does this: after 22:00 Isabelle is not created at the town hall (she "left");
