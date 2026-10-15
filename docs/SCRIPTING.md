@@ -43,9 +43,11 @@ Text (`"like this"`) can only be given to a function that expects text. Everythi
 Names are checked: a building, room, villager or outfit that does not exist is an error with a "did you mean…?".
 Rooms are the rooms (interiors) linked from the building's entrance room, by their id.
 
-**Actors** are the people and objects the game creates. Each has a *profile number*; give names to the ones you
-need under **Scripts > Actors** (a name and a number) and use the name in scripts. The probe tells you the numbers
-(see [HOOKS.md](HOOKS.md)).
+**Actors** are the people and objects the game creates. You never type their numbers: write the name
+(`@on_actor("Isabelle")`, or the game's own class name like `"AcNpcSpSecretaryIn"`). The **Names to use** card in the Scripts tab
+lists them and writes the one you click. New names come from probe logs (`python3 -m acnlb probe-report LOG --save`).
+Functions of the game are named too: `@on_call("BsWeatherRain.17")` is method 17 of the class `BsWeatherRain`
+(`python3 -m acnlb map BsWeatherRain` lists the methods); a raw address still works.
 
 ## Functions: *what* a script can ask and do
 

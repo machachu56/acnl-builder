@@ -6,7 +6,7 @@ DESC = {"enter": "when the player enters %s", "leave": "when the player leaves %
         "actor": "when the game creates actor %s", "call": "when the game calls 0x%x"}
 
 
-def trigger_text(h, prog):
+def trigger_text(h, prog, names=None):
     s = prog.strings
     if h.kind == "enter":
         return DESC["enter"] % ("%s, room %s" % (s[h.s1], s[h.s2]) if h.s2 != 0xFFFF else s[h.s1])
@@ -15,7 +15,8 @@ def trigger_text(h, prog):
     if h.kind == "room":
         return DESC["room"] % (s[h.s2], s[h.s1])
     if h.kind == "actor":
-        return DESC["actor"] % (("0x%x" % h.num) if h.s2 == 0xFFFF else "0x%x to 0x%x" % (h.num, h.s2))
+        nm = (names or {}).get(h.num)
+        return DESC["actor"] % ((nm or "0x%x" % h.num) if h.s2 == 0xFFFF else "0x%x to 0x%x" % (h.num, h.s2))
     return DESC["call"] % h.num
 
 
@@ -43,6 +44,12 @@ def check(source, ctx=None):
     """-> {"ok", "diagnostics": [...], "handlers": [{name, kind, trigger, line, timeline}], "bytes", "program": bytes|None}"""
     prog = compiler.compile_source(source, ctx)
     res = {"diagnostics": [], "handlers": [], "bytes": 0, "program": None}
+    names = {}
+    for k, v in sorted(((ctx.actor_names if ctx else {}) or {}).items(), reverse=True):
+        names[v] = k                                     # friendly names win over class names
+    for k, v in ((ctx.actor_names if ctx else {}) or {}).items():
+        if k[:1].isupper() and not k.startswith(("Ac", "Bs", "Sc")):
+            names[v] = k
     if prog.ok:
         blob = prog.encode()
         loaded = vm.Loaded(blob)
@@ -55,7 +62,7 @@ def check(source, ctx=None):
                 if seg["error"]:
                     prog.diags.append(compiler.Diag(h.line, 0, "%s would fail at %s-%s: %s" % (h.name, seg["start"], seg["end"], seg["error"]), "", "error"))
                     break
-            res["handlers"].append(dict(name=h.name, kind=h.kind, line=h.line, trigger=trigger_text(h, prog), timeline=tl))
+            res["handlers"].append(dict(name=h.name, kind=h.kind, line=h.line, trigger=trigger_text(h, prog, names), timeline=tl))
         if len(blob) > 24000:
             prog.diags.append(compiler.Diag(1, 0, "the scripts are too big for the game (%d bytes, at most 24000)" % len(blob)))
         if prog.ok:

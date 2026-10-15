@@ -41,18 +41,31 @@ export function render(root, app) {
   }
 
   // ---- actors: names for the numbers the game uses
+  function insertText(txt) {
+    const sc = cur(); if (!sc || sc.generated) { toast('Open one of your scripts first', 'info'); return; }
+    ta.focus(); ta.setRangeText(txt, ta.selectionStart, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input'));
+  }
+  const FRIENDLY = ['Isabelle', 'Tom Nook', 'Honma', 'Takumi', 'Resetti', 'Pelly', 'Rain', 'Snow', 'Sakura', 'Paper'];
   function actorsCard() {
-    const rows = Object.entries(P.actors);
-    return h('div', { class: 'card', style: { margin: '10px' } }, h('h3', {}, 'Actors'),
-      h('div', { class: 'dim', style: { fontSize: '12px', marginBottom: '6px' } }, 'A name for the profile number the game gives a villager or object, so scripts can say @on_actor("Isabelle"). The probe lists the numbers (docs/HOOKS.md).'),
-      rows.map(([n, v]) => h('div', { class: 'row', style: { gap: '4px', marginBottom: '4px' } }, h('b', { style: { flex: 1 } }, n), h('span', { class: 'kbd' }, '0x' + Number(v).toString(16)),
-        h('button', { class: 'small ghost danger', onclick: () => { delete P.actors[n]; changed(); drawLeft(); check(); } }, '×'))),
-      h('button', { class: 'small', onclick: async () => {
-        const n = await prompt('New actor', 'Name', 'Isabelle'); if (!n) return;
-        const v = await prompt('Profile number', 'Number (0x… or decimal)', '0x'); const num = Number(v);
-        if (!Number.isInteger(num) || num < 0 || num > 0xFFFF) { toast('A profile number is a whole number up to 0xFFFF', 'error'); return; }
-        P.actors[n] = num; changed(); drawLeft(); check();
-      } }, '+ Add an actor'));
+    return h('div', { class: 'card', style: { margin: '10px' } }, h('h3', {}, 'Names to use'),
+      h('div', { class: 'dim', style: { fontSize: '12px', marginBottom: '6px' } }, 'Scripts use names, never numbers: @on_actor("Isabelle"). Click a name to write it where the cursor is.'),
+      h('div', { class: 'pill-row' }, FRIENDLY.map((n) => h('button', { onclick: () => insertText('"' + n + '"') }, n))),
+      P.buildings.length ? h('div', { class: 'dim', style: { fontSize: '12px', margin: '8px 0 2px' } }, 'Your buildings') : null,
+      h('div', { class: 'pill-row' }, P.buildings.map((b) => h('button', { onclick: () => insertText('"' + b.id + '"') }, b.name || b.id))),
+      P.interiors.length ? h('div', { class: 'dim', style: { fontSize: '12px', margin: '8px 0 2px' } }, 'Your rooms') : null,
+      h('div', { class: 'pill-row' }, P.interiors.map((i) => h('button', { onclick: () => insertText('"' + i.id + '"') }, i.title || i.id))),
+      P.villagers.some((v) => (v.outfits || []).length) ? h('div', { class: 'dim', style: { fontSize: '12px', margin: '8px 0 2px' } }, 'Your outfits (villager, then outfit)') : null,
+      h('div', { class: 'pill-row' }, P.villagers.flatMap((v) => (v.outfits || []).map((o) => h('button', { onclick: () => insertText('"' + v.id + '", "' + o.id + '"') }, v.id + ' · ' + (o.name || o.id))))),
+      h('button', { class: 'small', style: { marginTop: '8px' }, onclick: addActor }, 'All the game’s actors…'),
+      h('div', { class: 'dim', style: { fontSize: '12px', margin: '8px 0 2px' } }, 'Game functions are named too: @on_call("BsWeatherRain.17") means method 17 of that class (python3 -m acnlb map BsWeatherRain lists them).'));
+  }
+  async function addActor() {
+    if (!st.ref) st.ref = await get('/api/script/reference');
+    const all = st.ref.actors || {};
+    const q = h('input', { type: 'search', placeholder: 'Search: Isabelle, Secretary, Tanukichi, Weather…' }), list = h('div', { class: 'list', style: { maxHeight: '300px', overflow: 'auto' } });
+    const draw = () => { const t = q.value.toLowerCase(); mount(list, Object.entries(all).filter(([n]) => n.toLowerCase().includes(t)).sort().slice(0, 200).map(([n]) => h('div', { class: 'item', onclick: () => { insertText('"' + n + '"'); list.closest('.modal-bg').remove(); } }, n))); };
+    q.addEventListener('input', draw); draw();
+    modal('Add an actor', h('div', { style: { width: '460px', maxWidth: '88vw' } }, h('div', { class: 'dim', style: { fontSize: '12px', marginBottom: '6px' } }, 'Everything the game was seen creating, by name. Click one to write it in your script. Names starting with Ac are the game’s own class names (AcNpcSpSecretaryIn is the town hall secretary, Isabelle).'), q, list), [{ label: 'Close', value: true, primary: true }]);
   }
 
   // ---- editor

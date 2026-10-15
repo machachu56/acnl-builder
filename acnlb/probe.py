@@ -47,6 +47,29 @@ def build_probe(class_names=(), addrs=(), actors=False, out=None):
     return out, len(hooks)
 
 
+def seen_actors(text):
+    """{class name: profile number} from a probe log"""
+    gm = gamemap.load()
+    vt = {v["vtable"]: n for n, v in gm.classes.items()}
+    out = {}
+    for m in re.finditer(r"probe: actor profile=(\d+) arg=\w+ obj=\w+ vtable=(\w+) scene=\d+/\d+(?: class=(\S*))?", text):
+        name = gamemap.demangle(m.group(3)) if m.group(3) else vt.get(int(m.group(2), 16))
+        if name:
+            out[name] = int(m.group(1))
+    return out
+
+
+def save_actors(text):
+    """merge the actors of a log into acnlb/script/actors.json; returns how many are new"""
+    import json
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "script", "actors.json")
+    data = json.load(open(path, encoding="utf-8"))
+    new = {k: v for k, v in seen_actors(text).items() if k not in data["actors"]}
+    data["actors"].update(new)
+    json.dump(data, open(path, "w", encoding="utf-8"), indent=1, sort_keys=True)
+    return len(new)
+
+
 def report(text):
     """summarise a game log written with a probe mod"""
     gm = gamemap.load()

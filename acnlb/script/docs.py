@@ -32,7 +32,7 @@ def reference():
                            where=["any"], doc="True between two times of the game's clock; it may pass midnight.", example='if time_between("22:00", "06:00"): ...')],
         "triggers": [dict(name=k, params=[dict(name=p[0], type=p[1]) for p in v[1]], options=[dict(name=p[0], type=p[1]) for p in v[2]], doc=v[3]) for k, v in A.TRIGGERS.items()],
         "statuses": STATUS,
-        "actors": __import__("acnlb.script.context", fromlist=["x"]).KNOWN_ACTORS,
+        "actors": __import__("acnlb.script.context", fromlist=["x"]).all_actors(),
     }
 
 

@@ -72,6 +72,7 @@ def main():
     p.add_argument("--install", action="store_true")
     r = sub.add_parser("probe-report", help="summarise a game log written with the probe mod")
     r.add_argument("log")
+    r.add_argument("--save", action="store_true", help="add the actors of this log to the names scripts can use")
     sub.add_parser("list", help="list projects")
     sub.add_parser("doctor", help="check the toolchain")
     a = ap.parse_args()
@@ -99,7 +100,10 @@ def main():
         print("Start the game from a terminal, play, save its output, then: python3 -m acnlb probe-report <log>")
     elif a.cmd == "probe-report":
         from . import probe
-        print(probe.report(open(a.log, encoding="utf-8", errors="replace").read()))
+        text = open(a.log, encoding="utf-8", errors="replace").read()
+        print(probe.report(text))
+        if a.save:
+            print("\n%d new actor name(s) saved: scripts can use them (@on_actor(\"ClassName\"))" % probe.save_actors(text))
     elif a.cmd == "list":
         for p in project.list_projects():
             print("%-20s %s" % (p["id"], p["title"]))

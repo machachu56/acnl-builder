@@ -18,6 +18,39 @@ KNOWN_ACTORS = {
 }
 
 
+def _seen_actors():
+    import json, os
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "actors.json"), encoding="utf-8") as f:
+            return json.load(f)["actors"]
+    except (OSError, ValueError, KeyError):
+        return {}
+
+
+def all_actors(proj=None):
+    """every actor name a script can use: the game's class names seen in logs, the friendly names, and the project's own"""
+    out = dict(_seen_actors())
+    out.update(KNOWN_ACTORS)
+    out.update({k: int(v) for k, v in ((proj or {}).get("actors") or {}).items()})
+    return out
+
+
+def resolve_method(text):
+    """"BsWeatherRain.17" -> the address of that virtual method (None if unknown)"""
+    try:
+        from .. import gamemap
+        gm = gamemap.load()
+    except (SystemExit, Exception):
+        return None, []
+    cls, _, idx = text.rpartition(".")
+    c = gm.classes.get(cls)
+    if c and idx.isdigit() and int(idx) < len(c["methods"]):
+        return c["methods"][int(idx)] & ~1, []
+    if c:
+        return None, "%s has %d methods, numbered 0 to %d" % (cls, len(c["methods"]), len(c["methods"]) - 1)
+    return None, list(gm.classes)
+
+
 def rooms_of(proj, bld):
     """scene ids of a building's rooms: its entrance room and everything linked from it"""
     if not bld.get("interior"):
@@ -46,10 +79,9 @@ def is_function(addr):
 
 
 def build_ctx(proj):
-    actors = dict(KNOWN_ACTORS)
-    actors.update({k: int(v) for k, v in (proj.get("actors") or {}).items()})
+    actors = all_actors(proj)
     return compiler.Ctx(
         buildings={b["id"]: rooms_of(proj, b) for b in proj.get("buildings", [])},
         villagers={v["id"]: [o["id"] for o in v.get("outfits") or []] for v in proj.get("villagers", [])},
-        actors=actors, is_function=is_function,
+        actors=actors, is_function=is_function, resolve_method=resolve_method,
         conversations=[e["id"] for e in proj.get("events", []) if e.get("scope") == "script"])

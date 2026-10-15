@@ -49,12 +49,13 @@ class Stop(Exception):
 class Ctx:
     """what the project and the game offer, for checking names"""
 
-    def __init__(self, buildings=None, villagers=None, actors=None, is_function=None, variants=None, conversations=None):
+    def __init__(self, buildings=None, villagers=None, actors=None, is_function=None, variants=None, conversations=None, resolve_method=None):
         self.buildings = buildings or {}          # id -> [room ids (interior scene ids)]
         self.villagers = villagers or {}          # id -> [outfit ids]
         self.actors = {k.lower(): v for k, v in (actors or {}).items()}      # name -> profile id
         self.actor_names = dict(actors or {})
         self.is_function = is_function            # addr -> bool, or None when the code map is not available
+        self.resolve_method = resolve_method      # "Class.3" -> (address, [])
         self.variants = variants or []
         self.conversations = conversations or []          # ids of events a script may switch on
 
@@ -255,8 +256,15 @@ class Compiler:
                     h.num = self.actor_value(a)
             elif pt == "addr":
                 v = a.value if isinstance(a, ast.Constant) else None
+                if isinstance(v, str):                       # a method by name: "BsWeatherRain.17", no number to look up
+                    if not self.ctx.resolve_method:
+                        self.err(a, "method names need the game's code map (your game dump)")
+                    addr, info = self.ctx.resolve_method(v)
+                    if addr is None:
+                        self.err(a, "no method %r in the game's classes" % v, info if isinstance(info, str) else (suggest(v.rpartition(".")[0], info, False) or "write Class.number, e.g. BsWeatherRain.17 (python3 -m acnlb map BsWeatherRain lists them)"))
+                    v = addr
                 if not isinstance(v, int) or isinstance(v, bool):
-                    self.err(a, "the address must be a number, like 0x5c9380")
+                    self.err(a, "the address must be a method name like \"BsWeatherRain.17\" or a number like 0x5c9380")
                 if self.ctx.is_function and not self.ctx.is_function(v):
                     self.err(a, "0x%x is not the start of a function of the game" % v, "find addresses with `python3 -m acnlb map` (see docs/HOOKS.md)")
                 h.num = v
