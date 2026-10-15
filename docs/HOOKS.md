@@ -68,7 +68,7 @@ Actors the game creates (profile number = what `@on_actor` takes; these are buil
 | profile | class | where seen | name in scripts |
 |---|---|---|---|
 | 105 (0x69) | `AcPlayer` | town | `Player` |
-| 454 (0x1c6) | `AcNpcSpSecretaryIn` | scene 38 (town hall) | `Isabelle` (inferred from the class and the `NPC_Secretary_*` flows) |
+| 454 (0x1c6) | `AcNpcSpSecretaryIn` | scene 38 (town hall) | `Isabelle` (confirmed: she was the one in the town hall during the probe run) |
 | 492 (0x1ec) | `AcNpcSpShopTanukichi` | scene 65 (Nook's Homes, so also the Baisodrome) | `Tom Nook` |
 | 419 / 500 | `AcNpcSpHonma` / `AcNpcSpTakumiRealEstate` | scene 65 | `Honma` / `Takumi` |
 | 425, 468 | `AcNpcSpResetsan`, `AcNpcSpPerioNormal` | scenes 99, 0 | `Resetti`, `Pelly` |
