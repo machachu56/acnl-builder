@@ -8,8 +8,29 @@ from ..script import compiler, context
 NEEDS_TEST = "uses %s(), which is implemented but whose effect in the game has not been seen yet"
 
 
+def cast_source(proj):
+    """Python for the "Characters" cards of the interiors: who stands where Tom Nook (or Honma, Takumi) would, and when.
+    sc["cast"] = [{"replace": "Tom Nook", "with": "Isabelle", "from": "22:00", "to": "06:00", "away": true}]"""
+    out = []
+    n = 0
+    for sc in proj.get("interiors", []):
+        for c in sc.get("cast") or []:
+            blds = [x["id"] for x in proj.get("buildings", []) if x.get("interior") == sc["id"]]
+            for bid in blds:
+                n += 1
+                when = ' and time_between("%s", "%s")' % (c["from"], c["to"]) if c.get("from") and c.get("to") else ""
+                out.append('@on_actor("%s")\ndef cast_%d():\n    if in_building("%s")%s:\n        become("%s")\n' % (c["replace"], n, bid, when, c["with"]))
+                if c.get("away"):
+                    cond = 'not in_building("%s")%s' % (bid, when)
+                    out.append('@on_actor("%s")\ndef cast_%d_is_away():\n    if %s:\n        hide_actor()\n' % (c["with"], n, cond.replace("not in_building", "not in_building", 1)))
+    return "from acnl import *\n\n" + "\n".join(out) if out else ""
+
+
 def compile(b):
     scripts = [s for s in b.proj.get("scripts", []) if s.get("enabled", True) and (s.get("code") or "").strip()]
+    generated = cast_source(b.proj)
+    if generated:
+        scripts.append({"id": "characters", "name": "Characters (Interiors tab)", "code": generated})
     if not scripts:
         return
     ctx = context.build_ctx(b.proj)

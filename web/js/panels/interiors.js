@@ -549,7 +549,7 @@ export function render(root, app) {
       h('div', { class: 'dim', style: { fontSize: '12px', margin: '6px 0' } }, 'From Blender: File → Export → glTF 2.0 (.glb, recommended: one file with its textures), Wavefront (.obj, also pick the .mtl and the images), STL or PLY (no colours). Select all the files of one model together. Importing the same name again updates the model.'),
       (lib.models || []).length ? h('div', { class: 'list' }, lib.models.map((a) => h('div', { class: 'item', title: 'Click, then click the plan to place it', onclick: () => placeModel(a) }, h('span', {}, modelLabel(a)),
         h('button', { class: 'small ghost danger sub', title: 'Remove from the project', onclick: (e) => { e.stopPropagation(); deleteModel(a); } }, '×')))) : h('div', { class: 'dim', style: { fontSize: '12px' } }, 'No model imported yet.'));
-    mount(body, h('div', { style: { padding: '10px', display: 'grid', gap: '10px' } }, modelsCard,
+    mount(body, h('div', { style: { padding: '10px', display: 'grid', gap: '10px' } }, castCard(sc), modelsCard,
       h('div', { class: 'card' }, h('h3', {}, 'Shapes'), h('label', { class: 'field' }, h('span', {}, 'Material'), matSel),
         h('div', { class: 'pill-row', style: { marginTop: '8px' } }, prims.map(([t, l]) => h('button', { onclick: () => { if (!matSel.value) { toast('Create a material first', 'error'); return; } start({ type: t, mat: matSel.value, noblock: false }); } }, l)))),
       h('div', { class: 'card' }, h('h3', {}, 'Beds'), Object.keys(sc.palettes).length ? h('div', { class: 'col' }, h('label', { class: 'field' }, h('span', {}, 'Palette'), palSel),
@@ -680,6 +680,27 @@ export function render(root, app) {
       field('The door is on the', select(plan.SIDES, ent.side, (v) => set(v, v === ent.side ? at : 7))),
       field('Position along that edge (tile of the first door tile)', numInput(at, (v) => set(ent.side, v), { min: 0, max, step: 1 })),
       h('div', { class: 'dim', style: { fontSize: '12px', marginTop: '4px' } }, ent.side === 'south' ? 'The original: the door in the front wall, the player walks in facing north.' : 'The two rows or columns along that edge are kept free for the doorway. The player appears there facing into the room.'));
+  }
+
+  // ---- characters: who stands where the game puts Tom Nook, Honma and Takumi (it can only swap them, not place new ones)
+  const STAFF = ['Tom Nook', 'Honma', 'Takumi'];
+  function castCard(sc) {
+    sc.cast = sc.cast || [];
+    const people = () => Object.keys({ ...(st.knownActors || {}), ...P.actors }).filter((n) => !['Player', 'Rain', 'Snow', 'Sakura', 'Paper'].includes(n));
+    if (!st.knownActors) get('/api/script/reference').then((r) => { st.knownActors = r.actors || {}; if (st.tab === 'add') drawLists(); });
+    const used = P.buildings.filter((b) => b.interior === sc.id);
+    const row = (c) => h('div', { class: 'card', style: { padding: '8px', display: 'grid', gap: '6px' } },
+      h('div', { class: 'grid2' }, field('Instead of', select(STAFF, c.replace, (v) => { c.replace = v; changed(); })), field('Stands', select(people(), c.with, (v) => { c.with = v; changed(); }))),
+      h('div', { class: 'grid2' }, field('From (empty = always)', h('input', { type: 'time', value: c.from || '', onchange: (e) => { c.from = e.target.value; changed(); } })),
+        field('Until', h('input', { type: 'time', value: c.to || '', onchange: (e) => { c.to = e.target.value; changed(); } }))),
+      checkbox(c.away, (v) => { c.away = v; changed(); }, 'Not at their usual place meanwhile (hidden elsewhere in the game)'),
+      h('button', { class: 'small ghost danger', onclick: () => { sc.cast.splice(sc.cast.indexOf(c), 1); changed(); drawLists(); } }, 'Remove'));
+    return h('div', { class: 'card' }, h('h3', {}, 'Characters'),
+      h('div', { class: 'dim', style: { fontSize: '12px', marginBottom: '6px' } }, 'Nook’s Homes has three people at the counter. You cannot add a new one or choose the spot (the game places them), but you can have someone else stand in place of one of them, always or at certain hours, e.g. Isabelle after 22:00.'),
+      used.length ? null : h('div', { class: 'warn-box', style: { marginBottom: '6px' } }, 'No building uses this interior yet, so nothing happens: give a building this interior in the Buildings tab.'),
+      sc.cast.map(row),
+      h('button', { onclick: () => { sc.cast.push({ replace: 'Tom Nook', with: 'Isabelle', from: '22:00', to: '06:00', away: true }); changed(); drawLists(); } }, '+ Put someone at the counter'),
+      h('div', { class: 'dim', style: { fontSize: '11px', marginTop: '6px' } }, 'Untested in the game: the swap is done when the building loads (it is compiled into the mod as a script when you export).'));
   }
 
   // ---- your own 3D models (Blender exports)
