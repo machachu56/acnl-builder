@@ -169,6 +169,7 @@ def native(prog, nid, a, w, S):
     if nm == "variant_off": w.trace.append("variant_off(%s)" % S[a[0]]); return None
     if nm == "hide_actor": w.hidden = True; w.trace.append("hide_actor()"); return None
     if nm == "become": w.became = a[0] & 0xFFFFFFFF; w.trace.append("become(0x%x)" % w.became); return None
+    if nm == "add_actor": w.trace.append("add_actor(0x%x, %d, %d)" % (a[0] & 0xFFFFFFFF, a[1], a[2])); return None
     if nm == "place_actor": w.trace.append("place_actor(%d, %d)" % (a[0], a[1])); return None
     if nm == "place_player": w.placed = (a[0], a[1], a[2]); w.trace.append("place_player(%d, %d, %d)" % tuple(a)); return None
     if nm in ("read8", "read16", "read32"):

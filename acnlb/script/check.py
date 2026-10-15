@@ -3,7 +3,7 @@ from . import actions as A
 from . import compiler, vm
 
 DESC = {"enter": "when the player enters %s", "leave": "when the player leaves %s", "room": "when the player enters room %s of %s",
-        "actor": "when the game creates actor %s", "call": "when the game calls 0x%x"}
+        "actor": "when the game creates actor %s", "spawn": "when the game spawns actor %s", "call": "when the game calls 0x%x"}
 
 
 def trigger_text(h, prog, names=None):
@@ -14,6 +14,8 @@ def trigger_text(h, prog, names=None):
         return DESC["leave"] % s[h.s1]
     if h.kind == "room":
         return DESC["room"] % (s[h.s2], s[h.s1])
+    if h.kind == "spawn":
+        return DESC["spawn"] % ((names or {}).get(h.num) or "0x%x" % h.num)
     if h.kind == "actor":
         nm = (names or {}).get(h.num)
         return DESC["actor"] % ((nm or "0x%x" % h.num) if h.s2 == 0xFFFF else "0x%x to 0x%x" % (h.num, h.s2))

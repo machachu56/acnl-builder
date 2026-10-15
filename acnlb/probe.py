@@ -37,10 +37,10 @@ def hooks_for(gm, class_names, addrs):
     return out[:400]
 
 
-def build_probe(class_names=(), addrs=(), actors=False, out=None):
+def build_probe(class_names=(), addrs=(), actors=False, out=None, spawns=False):
     gm = gamemap.load()
     hooks = hooks_for(gm, class_names, addrs)
-    cfg = ["# probe", "", "[probe]", "actors = %d" % int(actors)] + ["hook = 0x%x, %s" % h for h in hooks]
+    cfg = ["# probe", "", "[probe]", "actors = %d" % int(actors), "spawns = %d" % int(spawns)] + ["hook = 0x%x, %s" % h for h in hooks]
     files = {"mod.ini": MOD_INI.encode(), "acnlb.cfg": ("\n".join(cfg) + "\n").encode(), "probe.wasm": build.build_plugin(None)}
     out = out or os.path.join(env.EXPORTS, "probe.acmod")
     build.write_acmod(files, out)

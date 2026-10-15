@@ -69,6 +69,7 @@ def main():
     p.add_argument("--class", dest="classes", action="append", default=[], help="log calls of this class' virtual methods")
     p.add_argument("--hook", action="append", default=[], help="log calls of the function at this address")
     p.add_argument("--actors", action="store_true", help="log every actor the game creates")
+    p.add_argument("--spawns", action="store_true", help="log the arguments of every actor spawn (what a spawn struct holds: villager ids, positions)")
     p.add_argument("--install", action="store_true")
     r = sub.add_parser("probe-report", help="summarise a game log written with the probe mod")
     r.add_argument("log")
@@ -93,7 +94,7 @@ def main():
         _map(a)
     elif a.cmd == "probe":
         from . import probe
-        out, n = probe.build_probe(a.classes, [int(x, 0) for x in a.hook], a.actors)
+        out, n = probe.build_probe(a.classes, [int(x, 0) for x in a.hook], a.actors, spawns=a.spawns)
         print("%s: %d function(s) hooked%s" % (out, n, ", actors logged" if a.actors else ""))
         if a.install:
             import shutil

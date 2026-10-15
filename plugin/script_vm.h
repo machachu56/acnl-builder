@@ -15,7 +15,7 @@ namespace sv {
 
 enum { OK = 0, ERR_BUDGET = 1, ERR_STACK = 2, ERR_BAD_OP = 3, ERR_DIV = 4, ERR_HOST = 5 };
 const int BUDGET = 20000, STACK = 64, MAX_LOCALS = 32, MAX_STR = 256, MAX_HANDLERS = 64, MAX_CODE_BYTES = 24000;
-enum Kind { K_ENTER = 1, K_LEAVE = 2, K_ACTOR = 3, K_CALL = 4, K_ROOM = 5 };
+enum Kind { K_ENTER = 1, K_LEAVE = 2, K_ACTOR = 3, K_CALL = 4, K_ROOM = 5, K_SPAWN = 6 };
 
 struct Host {
     void *ctx;

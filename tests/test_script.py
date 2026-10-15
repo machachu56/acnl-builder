@@ -61,6 +61,11 @@ def b():
         become(0x77)
         place_actor(3, 4)
 
+@on_spawn("Isabelle")
+def e():
+    add_actor("Isabelle", 4, 5)
+    add_actor(0x77, 6, 7)
+
 @on_call(0x5c9380)
 def c():
     set_reg(1, reg(0) + 1)
@@ -81,7 +86,7 @@ class Compile(unittest.TestCase):
         r = check(SAMPLE, CTX)
         errs = [d for d in r["diagnostics"] if d["severity"] == "error"]
         self.assertEqual([e["message"] for e in errs if "zero" not in e["message"] and "division" not in e["message"]], [])
-        self.assertEqual([h["kind"] for h in r["handlers"]], ["enter", "actor", "call", "enter"])
+        self.assertEqual([h["kind"] for h in r["handlers"]], ["enter", "actor", "spawn", "call", "enter"])
 
     def test_dry_run_finds_runtime_errors(self):
         r = check(SAMPLE, CTX)

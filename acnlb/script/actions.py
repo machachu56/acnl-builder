@@ -58,6 +58,7 @@ NATIVES = [
     N(18, "become", [("actor", "actor")], None, "needs-test", ("actor",), "In an @on_actor handler: create another actor in this one's place (e.g. Isabelle where Tom Nook would stand).", 'become("Isabelle")'),
     N(19, "place_player", [("tile_x", "int"), ("tile_y", "int"), ("facing", "str")], None, "needs-test", ("enter",), "In an @on_enter handler: where the player appears when coming in (tile 0-15 of the room's plan) and which way they face: north, south, east or west.", 'place_player(8, 12, "north")'),
     N(29, "place_actor", [("tile_x", "int"), ("tile_y", "int")], None, "needs-test", ("actor",), "In an @on_actor handler: put the actor on this tile (0-15 of the room's plan) once the game has created it. Together with become() this adds a character where the game creates a spare one.", "become(\"Isabelle\")\nplace_actor(8, 6)"),
+    N(32, "add_actor", [("actor", "actor"), ("tile_x", "int"), ("tile_y", "int")], None, "needs-test", ("spawn",), "In an @on_spawn handler: when the game spawns the actor you named, spawn this other actor as well (the first one is not replaced), standing on this tile (0-15 of the room's plan). Needs the Builder's runtime (call_again).", 'add_actor("Isabelle", 8, 6)'),
     # ---- raw access: build new actions from scratch
     N(20, "read8", [("address", "int")], "int", "advanced", ANY, "Read a byte of the game's memory."),
     N(21, "read16", [("address", "int")], "int", "advanced", ANY, "Read 16 bits of the game's memory."),
@@ -82,7 +83,9 @@ TRIGGERS = {
                 "Runs when the player passes into this room of the building (through a door between rooms)."),
     "on_actor": ("actor", [("actor", "actor")], [("last", "actor")],
                  "Runs each time the game is about to create this actor (a villager, a shop assistant...) in a place you are loading. This is where villagers can be hidden or swapped. With last=N it covers every profile from the first number to N (e.g. all the furniture actors)."),
+    "on_spawn": ("spawn", [("actor", "actor")], [],
+                 "Runs when the game spawns this actor (a villager, a shop assistant...), before it does. Use add_actor() inside to spawn ANOTHER actor at the same moment: the new one is in addition to the game's, not instead of it."),
     "on_call": ("call", [("address", "addr")], [],
                 "Advanced: runs every time the game calls the function at this address, before it does. Build any new action from this."),
 }
-KIND_CODE = {"enter": 1, "leave": 2, "actor": 3, "call": 4, "room": 5}
+KIND_CODE = {"enter": 1, "leave": 2, "actor": 3, "call": 4, "room": 5, "spawn": 6}

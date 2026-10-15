@@ -47,6 +47,15 @@ code that decided; `map --at` and `map --callers` follow them.
 Once you think you have the function, hook it from a script with `@on_call(address)`, `log(...)` its arguments,
 and only then change them. See [SCRIPTING.md](SCRIPTING.md). If the address is not the start of a function, Builder says so.
 
+## Spawning extra actors (`add_actor`)
+
+The game spawns actors through one function (`0x51ef80`): `spawn(manager, &spawn_struct, r2, r3, stack...)`, whose struct starts with the
+u16 profile. A plugin cannot call game functions, so the runtime gained `acnl_call_again` (in `mods/sdk/acnl_mod.h`): from a hook's pre, the
+hooked function is run once more with other r0-r3 and a copy of the original stack arguments, then the original call goes on. `@on_spawn(X)` +
+`add_actor(Y, x, y)` uses it: when the game spawns X, the plugin copies the spawn struct, writes Y's profile, and re-issues the call, so Y is
+created in the same phase as the game's own characters (before the model-loading batch) and is then moved to the tile.
+`python3 -m acnlb probe --spawns` logs the struct and arguments of every spawn: the way to find the fields that choose a villager.
+
 ## What the plugin hooks by itself
 
 These were found for the Builder and are used by buildings, rooms and scripts:

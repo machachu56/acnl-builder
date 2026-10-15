@@ -8,6 +8,7 @@ from ..script import compiler, context
 NEEDS_TEST = "uses %s(), which is implemented but whose effect in the game has not been seen yet"
 
 
+ADD = "add"                # an extra character: the game's own stay
 SPARE = "spare"            # a spare slot: one of the furniture actors the game creates in the room (no character is replaced)
 FTR_FIRST, FTR_LAST = 0xBB, 0xEB
 
@@ -34,7 +35,13 @@ def cast_source(proj):
                 body += '        become("%s")\n' % c["with"] if c.get("with") else "        hide_actor()\n"
                 if c.get("with") and c.get("x") is not None and c.get("y") is not None:
                     body += "        place_actor(%d, %d)\n" % (int(c["x"]), int(c["y"]))
-                if c.get("replace") == SPARE:
+                if c.get("replace") == ADD:
+                    # an extra character, in addition to everybody: spawned together with `trigger` (an actor the game spawns in that room)
+                    trig = c.get("trigger") or "Tom Nook"
+                    tile = ("%d, %d" % (int(c["x"]), int(c["y"]))) if c.get("x") is not None and c.get("y") is not None else "8, 8"
+                    pre = '        wear("%s", "%s")\n' % (c["villager"], c["outfit"]) if c.get("villager") and c.get("outfit") else ""
+                    out.append('@on_spawn("%s")\ndef add_%d():\n    if %s:\n%s        add_actor("%s", %s)\n' % (trig, n, here, pre, c["with"], tile))
+                elif c.get("replace") == SPARE:
                     spares.append((here, body))
                 else:
                     out.append('@on_actor("%s")\ndef cast_%d():\n    if %s:\n%s' % (c["replace"], n, here, body))

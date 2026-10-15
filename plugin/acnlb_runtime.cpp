@@ -209,9 +209,10 @@ struct Probe { uint32_t addr; char label[44]; int calls; };
 const int MAX_PROBES = 400;
 Probe g_probe[MAX_PROBES];
 int g_nprobe = 0;
-bool g_probe_actors = false;
+bool g_probe_actors = false, g_probe_spawns = false;
 void set_probe_key(const char *key, const char *val) {
     if (!strcmp(key, "actors")) g_probe_actors = acnl_strtol(val, nullptr, 0) != 0;
+    else if (!strcmp(key, "spawns")) g_probe_spawns = acnl_strtol(val, nullptr, 0) != 0;
     else if (!strcmp(key, "hook") && g_nprobe < MAX_PROBES) {
         char *e;
         Probe &p = g_probe[g_nprobe];
@@ -402,6 +403,20 @@ int hook_probe(void *user) {
         acnl_log("probe: %s r0=%08x r1=%08x r2=%08x r3=%08x from=%08x", p.label, (unsigned)acnl_reg(0), (unsigned)acnl_reg(1), (unsigned)acnl_reg(2), (unsigned)acnl_reg(3), (unsigned)acnl_return_address());
     return ACNL_CONTINUE;
 }
+/* the spawn function's arguments: the struct r1 points at (profile first) and the stack arguments, to learn what each field means */
+int g_probe_spawn_n = 0;
+int hook_probe_spawn_pre(void *) {
+    if (g_probe_spawn_n++ >= 600) return ACNL_CONTINUE;
+    uint32_t desc = acnl_reg(1), sp = acnl_reg(13);
+    uint32_t w[24] = {0}, s[8] = {0};
+    if (desc >= 0x100000) acnl_read(desc, w, sizeof w);
+    acnl_read(sp, s, sizeof s);
+    acnl_log("probe: spawn profile=%u r0=%08x r1=%08x r2=%08x r3=%08x scene=%u/%u", (unsigned)(w[0] & 0xFFFF), (unsigned)acnl_reg(0), (unsigned)desc, (unsigned)acnl_reg(2), (unsigned)acnl_reg(3),
+             (unsigned)acnl_rd8(0x956320 + 2), (unsigned)acnl_rd8(0x956320 + 3));
+    acnl_log("probe: spawn-desc %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x", (unsigned)w[0], (unsigned)w[1], (unsigned)w[2], (unsigned)w[3], (unsigned)w[4], (unsigned)w[5], (unsigned)w[6], (unsigned)w[7], (unsigned)w[8], (unsigned)w[9], (unsigned)w[10], (unsigned)w[11]);
+    acnl_log("probe: spawn-stack %08x %08x %08x %08x %08x %08x %08x %08x", (unsigned)s[0], (unsigned)s[1], (unsigned)s[2], (unsigned)s[3], (unsigned)s[4], (unsigned)s[5], (unsigned)s[6], (unsigned)s[7]);
+    return ACNL_CONTINUE;
+}
 Saved s_probe_actor;
 int g_probe_actor_n = 0;
 uint8_t g_probe_seen[1024];
@@ -443,6 +458,10 @@ sv::Program g_prog;
 bool g_scripts = false;
 int32_t g_vars[64];
 uint32_t g_rng = 0x2545F491u;
+struct AddReq { uint32_t profile; int tx, tz; };
+const int MAX_ADDS = 4;
+AddReq g_adds[MAX_ADDS];
+int g_nadds = 0;
 struct ScriptState { bool hide, skip, become, place, placeact; uint32_t profile; float px, pz; int yaw; int atx, atz; } g_sc;
 ScriptState g_entry_override;     /* place_player() from an @on_enter handler, used when the game puts the player in the room */
 bool g_has_override = false;
@@ -498,6 +517,7 @@ bool script_call(void *, int id, const int32_t *a, int n, int32_t *ret, bool *ha
     case 26: *ret = (int32_t)acnl_reg((uint32_t)a[0] & 15); *has = true; return true;
     case 27: acnl_set_reg((uint32_t)a[0] & 15, (uint32_t)a[1]); return true;
     case 28: g_sc.skip = true; return true;
+    case 32: if (g_nadds < MAX_ADDS) g_adds[g_nadds++] = {(uint32_t)a[0] & 0xFFFF, a[1], a[2]}; return true;
     case 29: g_sc.placeact = true; g_sc.atx = a[0]; g_sc.atz = a[1]; return true;
     }
     return false;
@@ -552,6 +572,43 @@ int hook_script_call_pre(void *user) {
     memset(&g_sc, 0, sizeof g_sc);
     script_run(g_prog.h[(int)(intptr_t)user]);
     return g_sc.skip ? ACNL_SKIP : ACNL_CONTINUE;
+}
+
+/* ---- spawning extra actors: the game spawns actors through one function (manager, &spawn-struct, r2, r3, stack...) whose struct starts
+   with the u16 profile. For an @on_spawn trigger the plugin asks the runtime to run the same call again with a copy of the struct
+   holding another profile (call_again), so the extra actor is created in the same phase as the game's own: its model loads with theirs. */
+const uint32_t FN_SPAWN = 0x51ef80;
+uint32_t g_clone[MAX_ADDS];                 /* guest copies of the spawn struct */
+AddReq g_adds_run[MAX_ADDS];
+int hook_spawn_pre(void *) {
+    if (!g_scripts) return ACNL_CONTINUE;
+    uint32_t desc = acnl_reg(1);
+    if (desc < 0x100000) return ACNL_CONTINUE;
+    uint32_t prof = acnl_rd16(desc);
+    memset(&g_sc, 0, sizeof g_sc);
+    g_nadds = 0;
+    script_fire(sv::K_SPAWN, nullptr, nullptr, prof);
+    for (int k = 0; k < g_nadds; k++) {
+        if (!g_clone[k]) g_clone[k] = acnl_alloc(0x100, 4);
+        if (!g_clone[k]) break;
+        uint8_t buf[0x100];
+        if (acnl_read(desc, buf, sizeof buf) != 0) break;
+        buf[0] = (uint8_t)(g_adds[k].profile & 0xFF); buf[1] = (uint8_t)(g_adds[k].profile >> 8);
+        acnl_write(g_clone[k], buf, sizeof buf);
+        g_adds_run[k] = g_adds[k];
+        acnl_log("script: spawning actor %u next to %u (tile %d,%d)", (unsigned)g_adds[k].profile, (unsigned)prof, g_adds[k].tx, g_adds[k].tz);
+        acnl_call_again(100 + (uint32_t)k, acnl_reg(0), g_clone[k], acnl_reg(2), acnl_reg(3));
+    }
+    return ACNL_CONTINUE;
+}
+extern "C" ACNL_EXPORT("acnl_mod_call_done") void acnl_mod_call_done(uint32_t id, uint32_t result) {
+    if (id < 100 || id >= 100 + MAX_ADDS) return;
+    const AddReq &r = g_adds_run[id - 100];
+    acnl_log("script: the extra actor %u was created: object %08x", (unsigned)r.profile, (unsigned)result);
+    if (result < 0x100000) return;
+    float x = r.tx * (float)TILE + TILE / 2.0f, z = r.tz * (float)TILE + TILE / 2.0f;
+    uint32_t base[2] = {0x14, 0x20};
+    for (int i = 0; i < 2; i++) { acnl_write(result + base[i], &x, 4); acnl_write(result + base[i] + 8, &z, 4); }
 }
 
 void load_scripts() {
@@ -804,6 +861,7 @@ extern "C" int acnl_mod_init(void) {
     if (any_links && acnl_hook(FN_ACTOR_CREATE, hook_actor_track_pre, hook_actor_track_post, nullptr) != 0) return -1;
     for (int i = 0; i < g_nprobe; i++)
         if (acnl_hook(g_probe[i].addr, hook_probe, nullptr, (void *)(intptr_t)i) != 0) acnl_log("probe: cannot hook %#x (%s)", (unsigned)g_probe[i].addr, g_probe[i].label);
+    if (g_probe_spawns && acnl_hook(0x51ef80, hook_probe_spawn_pre, nullptr, nullptr) != 0) acnl_log("probe: cannot hook the spawn function");
     if (g_probe_actors && acnl_hook(FN_ACTOR_CREATE, hook_probe_actor_pre, hook_probe_actor_post, nullptr) != 0) return -1;
     if (g_scripts) {
         bool actors = false;
@@ -814,6 +872,9 @@ extern "C" int acnl_mod_init(void) {
                 acnl_log("script: cannot hook %#x: it is not a function of the game, the trigger stays off", (unsigned)h.num);
         }
         if (actors && acnl_hook(FN_ACTOR_CREATE, hook_script_actor_pre, hook_script_actor_post, nullptr) != 0) return -1;
+        bool spawns = false;
+        for (int i = 0; i < g_prog.nhandlers; i++) if (g_prog.h[i].kind == sv::K_SPAWN) spawns = true;
+        if (spawns && acnl_hook(FN_SPAWN, hook_spawn_pre, nullptr, nullptr) != 0) { acnl_log("script: cannot hook the spawn function: @on_spawn is off"); }
     }
     /* after the scripts' hook: a script may turn a furniture request into a character before the exhibits are hidden */
     if (any_hide && acnl_hook(FN_ACTOR_CREATE, hook_actor_create_pre, nullptr, nullptr) != 0) return -1;

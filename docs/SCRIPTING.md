@@ -38,6 +38,7 @@ Text (`"like this"`) can only be given to a function that expects text. Everythi
 | `@on_leave("building")` | the player leaves it for the town |
 | `@on_room("building", "room")` | the player passes into that room through a door between rooms |
 | `@on_actor("Isabelle")` | the game is about to create that actor (villager, shopkeeper…) in a place that is loading |
+| `@on_spawn("Actor")` | the game spawns that actor (before it does). Use `add_actor()` to spawn others with it |
 | `@on_call(0x5c9380)` | the game calls the function at that address (advanced: build anything from this) |
 
 Names are checked: a building, room, villager or outfit that does not exist is an error with a "did you mean…?".
@@ -65,6 +66,7 @@ midnight) · `in_building("id")`, `in_room("building", "room")` · `chance(25)` 
 | `wear("villager", "outfit")`, `wear_default("villager")` | dress a villager in an outfit you made (Villagers tab) | needs test |
 | `hide_actor()` | (in `@on_actor`) the game does not create that actor | needs test |
 | `become("Actor")` | (in `@on_actor`) create another actor in its place | needs test |
+| `add_actor("Actor", tile_x, tile_y)` | (in `@on_spawn("Other")`) spawn *another* actor when the game spawns `Other`, in addition to it, on a tile. Needs the Builder's runtime | needs test |
 | `place_actor(tile_x, tile_y)` | (in `@on_actor`) move the new actor to a tile once the game created it; with `become()` this *adds* a character in a spare slot | needs test |
 | `place_player(tile_x, tile_y, "north")` | (in `@on_enter`) where the player appears coming in | needs test |
 | `variant_on("name")`, `variant_off("name")` | switch a RomFS variant of the mod | needs test |
