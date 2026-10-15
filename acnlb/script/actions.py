@@ -48,7 +48,7 @@ NATIVES = [
     N(13, "wear", [("villager", "villager"), ("outfit", "outfit")], None, "needs-test", ("enter", "leave", "room", "actor"),
       "Dress a villager in one of the outfits you made for them (Villagers tab). The new clothes show the next time the game loads that villager's model, e.g. when you walk into a place they are in.",
       'wear("ant00", "work_clothes")'),
-    N(14, "wear_default", [("villager", "villager")], None, "needs-test", ("enter", "leave", "room", "actor"), "Back to the villager's normal clothes (the default outfit, or the game's).", 'wear_default("ant00")'),
+    N(14, "wear_default", [("villager", "villager")], None, "needs-test", ("enter", "leave", "room", "actor", "spawn"), "Back to the villager's normal clothes (the default outfit, or the game's).", 'wear_default("ant00")'),
     N(15, "variant_on", [("name", "str")], None, "needs-test", ANY, "Switch on a RomFS variant of your mod by name (advanced: outfits and buildings have their own).", ""),
     N(16, "variant_off", [("name", "str")], None, "needs-test", ANY, "Switch a RomFS variant off.", ""),
     N(30, "conversation_on", [("conversation", "conversation")], None, "needs-test", ANY, "Switch on a conversation you wrote in the Events tab whose scope is “only when a script turns it on”: from now on the game's character says your lines. Takes effect the next time that conversation starts.", 'conversation_on("isabelle_hello")'),
