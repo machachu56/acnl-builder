@@ -35,6 +35,8 @@ SCENE_DEFAULT = {
     "id": "interior", "title": "Interior", "wall_h": 112, "part_h": 40,
     "door": [[7, 14], [8, 14]], "exit": [[7, 15], [8, 15]], "main": "main",
     "materials": {}, "palettes": {}, "rooms": [], "items": [],
+    # ways to other rooms of the same building: {"id", "tiles": [[x, y]...], "to": scene id, "arrive": [x, y], "face": 0|90|180|270}
+    "links": [],
 }
 
 
@@ -345,6 +347,13 @@ class Plan:
                 self.doorway[t] = r["id"]
         for t in self.door:
             self.owner[t] = main
+        self.link = {}                 # tile -> link: walking onto it leaves for another room
+        for k in spec.get("links") or []:
+            for t in k.get("tiles", []):
+                t = tuple(t)
+                if t not in self.owner:
+                    raise SceneError("link %s: tile %d,%d is not floor" % (k.get("id", "?"), t[0], t[1]))
+                self.link[t] = k
 
     def floor(self, t):
         return t in self.owner
@@ -361,7 +370,7 @@ class Plan:
     def problems(self):
         out = []
         free = {t for t in self.owner if t not in self.solid}
-        for t in list(self.doorway) + self.door:
+        for t in list(self.link) + list(self.doorway) + self.door:
             if t not in free:
                 out.append("a doorway or the entrance (tile %d,%d) is blocked by furniture" % t)
         if self.door and self.door[0] in free:
@@ -388,6 +397,8 @@ class Plan:
                     words = (0, 0, 0, 0, 0x4007)
                 elif t in self.door:
                     words = (0, 0, 0, 0, 0x402B)
+                elif t in self.link:                    # an exit tile: the plugin decides where it really leads
+                    words = (0, 0, 0, 0, 0x4007)
                 elif not self.floor(t) or t in self.solid:
                     words = (0x6318, 0x6318, 0x6318, 0x6318, 0x400F)
                 else:
@@ -450,6 +461,8 @@ class Builder:
         sizes["trim"] = (16, 16)
         sizes["lip"] = (16, 16)
         sizes["_mirror"] = (16, 16)
+        if S.get("links"):
+            sizes["_link"] = (16, 16)
         for pname in S["palettes"]:
             for part, size in BED_PARTS.items():
                 sizes["bed:%s:%s" % (pname, part)] = size
@@ -511,6 +524,11 @@ class Builder:
         c.vgrad(R["trim"], (255, 248, 240, 255), (232, 220, 214, 255))
         c.rect(R["lip"], (90, 40, 60, 255))
         c.vgrad(R["_mirror"], (220, 240, 255, 255), (150, 170, 200, 255))
+        if "_link" in R:                      # a doormat in front of the way to another room
+            x0, y0, x1, y1 = R["_link"]
+            c.rect(R["_link"], (150, 100, 40, 255))
+            c.rrect((x0 + 1, y0 + 1, x1 - 1, y1 - 1), 3, (240, 200, 90, 255))
+            c.rrect((x0 + 4, y0 + 4, x1 - 4, y1 - 4), 2, (255, 236, 160, 255))
         for name, m in self.spec["materials"].items():
             r = R["m:" + name]
             t = m.get("type", "prop")
@@ -682,6 +700,8 @@ class Builder:
                     m.quad((x1 - 10, y0, z1), (x1 - 10, y0, z0), (x1 - 10, y1, z0), (x1 - 10, y1, z1), sign)
                 else:
                     m.quad((x0 + 10, y0, z0), (x0 + 10, y0, z1), (x0 + 10, y1, z1), (x0 + 10, y1, z0), sign)
+        for (x, y) in plan.link:                # doormats on the link tiles
+            self.flat(x * T + 3, y * T + 3, (x + 1) * T - 3, (y + 1) * T - 3, "_link", y=0.7)
         dxs = sorted(t[0] for t in plan.door)
         gap0, gap1 = (dxs[0] * T, (dxs[-1] + 1) * T) if dxs else (0, 0)
         for x0, x1 in ((0, gap0), (gap1, GRID * T)):

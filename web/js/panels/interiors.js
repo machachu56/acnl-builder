@@ -50,10 +50,11 @@ export function render(root, app) {
 
   const sceneNames = () => P.interiors.map((s) => [s.id, s.title || s.id]);
   function drawToolbar() {
-    const tools = [['select', '↖ Select / move', 'V'], ['room', '▭ Draw room', 'U'], ['door', '⌷ Doorway', 'D']];
+    const tools = [['select', '↖ Select / move', 'V'], ['room', '▭ Draw area', 'U'], ['door', '⌷ Doorway', 'D'], ['link', '⇄ Way to another room', 'L']];
     mount(toolbar,
       P.interiors.length ? (() => { const s = select(sceneNames(), st.sid, (v) => { st.sid = v; setSel([]); st.placing = null; drawAll(); preview.now(); }); s.style.width = '170px'; return s; })() : null,
-      h('button', { class: 'small', onclick: addScene }, '+ New'),
+      h('button', { class: 'small', title: 'A new, empty room', onclick: addScene }, '+ Room'),
+      scene() ? h('button', { class: 'small', title: 'A new room joined to this one by doors both ways', onclick: addLinkedRoom }, '+ Linked room') : null,
       P.interiors.length ? h('button', { class: 'small ghost', onclick: renameScene }, 'Rename') : null,
       P.interiors.length ? h('button', { class: 'small ghost danger', onclick: delScene }, 'Delete') : null,
       h('button', { class: 'small ghost', title: 'Undo (Ctrl+Z)', onclick: undo }, '↶'), h('button', { class: 'small ghost', title: 'Redo (Ctrl+Y)', onclick: redo }, '↷'),
@@ -62,19 +63,49 @@ export function render(root, app) {
       st.placing ? h('span', { class: 'chip warn' }, 'placing: ' + (TYPE_LABEL[st.placing.type] || st.placing.type) + ' — click the plan, Esc to stop') : null);
   }
   function hintText() {
-    const t = st.placing ? 'Click on the plan to place it. Hold Shift to place several.' : { select: 'Click an item to select it; Ctrl/Shift-click adds more, or drag a box on empty floor. Drag to move the selection; arrows nudge, R rotates, Del deletes. A room is selected by clicking its floor and moved by its top-left tile.', room: 'Drag on the empty grid to add a room (any tile not inside a room is a low partition wall).', door: 'Select a room first, then click floor tiles beside it to make doorways to the main room.' }[st.tool];
+    const t = st.placing ? 'Click on the plan to place it. Hold Shift to place several.' : { select: 'Click an item to select it; Ctrl/Shift-click adds more, or drag a box on empty floor. Drag to move the selection; arrows nudge, R rotates, Del deletes. A room is selected by clicking its floor and moved by its top-left tile.', room: 'Drag on the empty grid to add an area (a rectangle of floor; any tile outside the areas is a low partition wall).', link: 'Click floor tiles of this room to make them a way to another room (choose where it leads in the Links tab). Click a link tile again to remove it.', door: 'Select a room first, then click floor tiles beside it to make doorways to the main room.' }[st.tool];
     hint.textContent = t;
   }
   async function addScene() {
-    const t = await prompt('New interior', 'Name', 'My interior'); if (!t) return;
+    const t = await prompt('New room', 'Name', 'My room'); if (!t) return;
     const sc = newInterior(P, t); P.interiors.push(sc); st.sid = sc.id; changed(); drawAll(); preview.now();
   }
   async function renameScene() { const t = await prompt('Rename interior', 'Name', scene().title); if (t) { scene().title = t; changed(); drawToolbar(); } }
   async function delScene() {
     const sc = scene(); const users = P.buildings.filter((b) => b.interior === sc.id);
     if (!await confirmBox('Delete "' + (sc.title || sc.id) + '"' + (users.length ? ' (used by ' + users.map((b) => b.name || b.id).join(', ') + ')' : '') + '?', 'Delete')) return;
-    P.interiors.splice(P.interiors.indexOf(sc), 1); users.forEach((b) => { b.interior = null; });
+    P.interiors.splice(P.interiors.indexOf(sc), 1); users.forEach((b) => { b.interior = null; }); P.interiors.forEach((o) => { o.links = (o.links || []).filter((l) => l.to !== sc.id); });
     st.sid = P.interiors[0] ? P.interiors[0].id : null; setSel([]); changed(); drawAll(); preview.now();
+  }
+
+  // ---- links: ways to other rooms of the building
+  const floorMap = (sc) => ownerMap(sc);
+  const solidSet = (sc) => { const o = new Set(); for (const it of sc.items) for (const b of it.block || []) o.add(b[0] + ',' + b[1]); return o; };
+  const linkTiles = (sc) => { const o = new Map(); for (const l of sc.links || []) for (const t of l.tiles || []) o.set(t[0] + ',' + t[1], l); return o; };
+  // free floor tiles (not an entrance, doorway, link or blocked by furniture), nearest to (cx, cy) first
+  function freeTiles(sc, cx, cy, avoid) {
+    const fl = floorMap(sc), sol = solidSet(sc), lk = linkTiles(sc), out = [];
+    const door = new Set([...(sc.door || []), ...(sc.exit || [])].map((t) => t[0] + ',' + t[1]));
+    for (const [k, o] of fl) { if (sol.has(k) || lk.has(k) || door.has(k) || (avoid && avoid.has(k)) || o.door) continue; const [x, y] = k.split(',').map(Number); out.push([x, y]); }
+    return out.sort((a, b) => Math.hypot(a[0] - cx, a[1] - cy) - Math.hypot(b[0] - cx, b[1] - cy));
+  }
+  const neighbours = ([x, y]) => [[x, y + 1], [x, y - 1], [x + 1, y], [x - 1, y]];
+  const FACES = [['north', 'North (towards the back wall)'], ['south', 'South (towards the front)'], ['east', 'East (right)'], ['west', 'West (left)']];
+  const newLinkId = (sc) => uid('link', sc.links || []);
+  async function addLinkedRoom() {
+    const a = scene(); if (!a) return;
+    const name = await prompt('New linked room', 'Name', 'Room ' + (P.interiors.length + 1)); if (!name) return;
+    const b = newInterior(P, name);
+    const avoidA = new Set();
+    const ta = freeTiles(a, 8, 11)[0]; if (!ta) { toast('There is no free tile in this room for the door', 'error'); return; }
+    avoidA.add(ta.join(','));
+    const flA = floorMap(a), qa = neighbours(ta).find(([x, y]) => flA.has(x + ',' + y) && !solidSet(a).has(x + ',' + y) && !linkTiles(a).has(x + ',' + y)) || ta;
+    const qb = freeTiles(b, 8, 10)[0], tb = neighbours(qb).map((t) => t).find(([x, y]) => floorMap(b).has(x + ',' + y)) || qb;
+    P.interiors.push(b);
+    a.links = (a.links || []).concat([{ id: newLinkId(a), tiles: [ta], to: b.id, arrive: qb, face: 'south' }]);
+    b.links = [{ id: 'back', tiles: [tb], to: a.id, arrive: qa, face: 'north' }];
+    st.sid = b.id; setSel([]); st.tab = 'links'; changed(); drawAll(); preview.now();
+    toast('Created ' + name + ': a door in each room leads to the other', 'ok');
   }
 
   // ---- drawing
@@ -112,6 +143,11 @@ export function render(root, app) {
     g.strokeStyle = 'rgba(230,106,95,.7)'; g.lineWidth = 1;
     const solid = new Set(); for (const it of sc.items) for (const b of it.block || []) solid.add(b[0] + ',' + b[1]);
     for (const k of solid) { const [x, y] = k.split(',').map(Number); g.beginPath(); for (let i = 0; i < S36; i += 8) { g.moveTo(x * S36 + i, y * S36); g.lineTo(x * S36, y * S36 + i); } g.stroke(); }
+    for (const l of sc.links || []) for (const t of l.tiles || []) {
+      const dest = P.interiors.find((x) => x.id === l.to), sel = st.linkSel === l.id;
+      g.fillStyle = 'rgba(190,120,255,.55)'; g.fillRect(t[0] * S36 + 2, t[1] * S36 + 2, S36 - 4, S36 - 4); g.strokeStyle = sel ? '#fff' : '#c9a0ff'; g.lineWidth = sel ? 3 : 2; g.strokeRect(t[0] * S36 + 3, t[1] * S36 + 3, S36 - 6, S36 - 6);
+      g.fillStyle = '#fff'; g.font = 'bold 15px system-ui'; g.fillText('⇄', t[0] * S36 + 9, t[1] * S36 + 24); label(g, '→ ' + (dest ? dest.title || dest.id : '?'), t[0] * S36 + 2, t[1] * S36 - 1, sel);
+    }
     // items
     for (const it of sc.items) drawItem(g, it, st.multi.has(it.id), sc);
     // selection: a clear frame around every selected item (dark outline + bright frame + corner handles), and one around the group
@@ -195,6 +231,17 @@ export function render(root, app) {
       drawInspector(); drawLists(); drawPlan();
     } else if (st.tool === 'room') {
       st.drag = { kind: 'room', start: t, rect: [t[0], t[1], t[0], t[1]] }; drawPlan();
+    } else if (st.tool === 'link') {
+      const lk = linkTiles(sc), key = t[0] + ',' + t[1], hit = lk.get(key);
+      if (hit) { hit.tiles = hit.tiles.filter((q2) => q2.join(',') !== key); if (!hit.tiles.length) sc.links.splice(sc.links.indexOf(hit), 1); changed(); drawAll(); preview(); return; }
+      if (!floorMap(sc).has(key) || solidSet(sc).has(key)) { toast('Links go on free floor tiles', 'info'); return; }
+      const others = P.interiors.filter((x) => x.id !== sc.id);
+      if (!others.length) { toast('Add another room first (“+ Room” or “+ Linked room”)', 'info'); return; }
+      sc.links = sc.links || [];
+      const cur = st.linkSel && sc.links.find((l) => l.id === st.linkSel);
+      if (cur) cur.tiles.push(t);
+      else { const o = others[0], q2 = freeTiles(o, 8, 10)[0] || [8, 10]; const nl = { id: newLinkId(sc), tiles: [t], to: o.id, arrive: q2, face: 'south' }; sc.links.push(nl); st.linkSel = nl.id; }
+      st.tab = 'links'; changed(); drawAll(); preview();
     } else if (st.tool === 'door') {
       const r = st.sel && st.sel.kind === 'room' ? sc.rooms.find((x) => x.id === st.sel.id) : null;
       if (!r) { toast('Select the room the doorway leads to first (Select tool)', 'info'); return; }
@@ -258,7 +305,7 @@ export function render(root, app) {
     if ((e.ctrlKey || e.metaKey) && (k === 'a' || k === 'A')) { e.preventDefault(); setSel(sc.items.map((i) => i.id)); drawAll(); return; }
     const its = selItems();
     if ((e.ctrlKey || e.metaKey) && (k === 'd' || k === 'D')) { e.preventDefault(); if (its.length) duplicate(its); return; }
-    if (!e.ctrlKey && !e.metaKey) { if (k === 'v') { st.tool = 'select'; drawToolbar(); hintText(); } else if (k === 'u') { st.tool = 'room'; drawToolbar(); hintText(); } else if (k === 'd') { st.tool = 'door'; drawToolbar(); hintText(); } }
+    if (!e.ctrlKey && !e.metaKey) { if (k === 'l') { st.tool = 'link'; drawToolbar(); hintText(); } else if (k === 'v') { st.tool = 'select'; drawToolbar(); hintText(); } else if (k === 'u') { st.tool = 'room'; drawToolbar(); hintText(); } else if (k === 'd') { st.tool = 'door'; drawToolbar(); hintText(); } }
     if (!its.length) { if ((k === 'Delete' || k === 'Backspace') && st.sel && st.sel.kind === 'room') { delRoom(); } return; }
     const step = e.shiftKey ? T : 8;
     if (k === 'Delete' || k === 'Backspace') { sc.items = sc.items.filter((i) => !st.multi.has(i.id)); setSel([]); }
@@ -292,7 +339,7 @@ export function render(root, app) {
   // ================================================================ left: lists
   function drawLeft() {
     const sc = scene();
-    mount(left, h('div', { class: 'tabs' }, [['items', 'Items'], ['rooms', 'Rooms'], ['mats', 'Materials'], ['add', 'Add']].map(([id, l]) => h('button', { class: st.tab === id ? 'on' : '', onclick: () => { st.tab = id; drawLeft(); } }, l))), h('div', { style: { overflow: 'auto', flex: 1 }, id: 'leftbody' }));
+    mount(left, h('div', { class: 'tabs' }, [['items', 'Items'], ['rooms', 'Areas'], ['links', 'Links'], ['mats', 'Materials'], ['add', 'Add']].map(([id, l]) => h('button', { class: st.tab === id ? 'on' : '', onclick: () => { st.tab = id; drawLeft(); } }, l))), h('div', { style: { overflow: 'auto', flex: 1 }, id: 'leftbody' }));
     drawLists();
   }
   function drawLists() {
@@ -305,6 +352,7 @@ export function render(root, app) {
       mount(body, h('div', { class: 'list' }, sc.rooms.map((r) => h('div', { class: 'item' + (st.sel && st.sel.kind === 'room' && st.sel.id === r.id ? ' on' : ''), onclick: () => { setSel([], r.id); drawInspector(); drawLists(); drawPlan(); } }, h('span', {}, (r.name || r.id) + (r.id === sc.main ? ' ★' : '')), h('span', { class: 'sub dim' }, (r.rect[2] - r.rect[0] + 1) + '×' + (r.rect[3] - r.rect[1] + 1)))),
         h('div', { class: 'dim', style: { padding: '10px 12px', fontSize: '12px' } }, 'Use the “Draw room” tool to add rooms. ★ is the main room: the entrance, and where doorways lead.')));
     } else if (st.tab === 'mats') drawMaterials(body, sc);
+    else if (st.tab === 'links') drawLinks(body, sc);
     else drawAdd(body, sc);
   }
 
@@ -315,6 +363,41 @@ export function render(root, app) {
       if (a >= 0 && b >= 0) { const [lo, hi] = a < b ? [a, b] : [b, a]; const ids = new Set(e.ctrlKey || e.metaKey ? st.multi : []); for (let k = lo; k <= hi; k++) ids.add(sc.items[k].id); const keep = st.anchor; setSel([...ids]); st.anchor = keep; }
     } else if (e.ctrlKey || e.metaKey) setSel(toggleIn(it.id)); else setSel([it.id]);
     drawInspector(); drawLists(); drawPlan();
+  }
+
+  // ---- the Links tab: where each way out of this room leads
+  function arrivalOk(dest, a) {
+    const k = a[0] + ',' + a[1]; return floorMap(dest).has(k) && !floorMap(dest).get(k).door && !solidSet(dest).has(k) && !linkTiles(dest).has(k);
+  }
+  function drawLinks(body, sc) {
+    const others = P.interiors.filter((x) => x.id !== sc.id);
+    const owners = P.buildings.filter((b) => b.interior === sc.id).map((b) => b.name || b.id);
+    const cards = (sc.links || []).map((l) => {
+      const dest = P.interiors.find((x) => x.id === l.to), ok = dest && arrivalOk(dest, l.arrive || [-1, -1]);
+      const mini = h('canvas', { width: 14 * GRID, height: 14 * GRID, style: { width: 14 * GRID + 'px', height: 14 * GRID + 'px', cursor: 'crosshair', borderRadius: '4px', border: '1px solid var(--line)' } });
+      const drawMini = () => {
+        const g = mini.getContext('2d'); g.fillStyle = '#10151a'; g.fillRect(0, 0, mini.width, mini.height);
+        if (dest) {
+          for (const [k, o] of floorMap(dest)) { const [x, y] = k.split(',').map(Number); g.fillStyle = o.door ? '#4a5a3a' : '#7a4a52'; g.fillRect(x * 14, y * 14, 13, 13); }
+          g.fillStyle = 'rgba(190,120,255,.8)'; for (const t of linkTiles(dest).keys()) { const [x, y] = t.split(',').map(Number); g.fillRect(x * 14 + 2, y * 14 + 2, 9, 9); }
+          g.fillStyle = 'rgba(230,106,95,.9)'; for (const k of solidSet(dest)) { const [x, y] = k.split(',').map(Number); g.fillRect(x * 14 + 4, y * 14 + 4, 5, 5); }
+        }
+        const a = l.arrive || [0, 0]; g.strokeStyle = ok ? '#6bbf7a' : '#e66a5f'; g.lineWidth = 2; g.strokeRect(a[0] * 14 + 1, a[1] * 14 + 1, 12, 12);
+      };
+      mini.addEventListener('pointerdown', (e) => { const r = mini.getBoundingClientRect(); l.arrive = [Math.floor((e.clientX - r.left) / r.width * GRID), Math.floor((e.clientY - r.top) / r.height * GRID)]; changed(); drawLists(); });
+      setTimeout(drawMini, 0);
+      return h('div', { class: 'card' + (st.linkSel === l.id ? ' sel' : ''), style: { margin: '8px', padding: '10px', borderColor: st.linkSel === l.id ? '#c9a0ff' : '' } },
+        h('div', { class: 'row', style: { marginBottom: '6px' } }, h('b', {}, 'Way ' + l.id), h('span', { class: 'dim' }, (l.tiles || []).length + ' tile(s): ' + (l.tiles || []).map((t) => t.join(',')).join('  ')), h('div', { class: 'grow' }),
+          h('button', { class: 'small ghost danger', onclick: () => { sc.links.splice(sc.links.indexOf(l), 1); if (st.linkSel === l.id) st.linkSel = null; changed(); drawAll(); preview(); } }, 'delete')),
+        field('Leads to', select(others.map((o) => [o.id, o.title || o.id]), l.to, (v) => { l.to = v; changed(); drawLists(); drawPlan(); })),
+        h('div', { class: 'grid2', style: { marginTop: '6px' } }, field('The player arrives facing', select(FACES, l.face || 'south', (v) => { l.face = v; changed(); })), field('Arrival tile', textInput((l.arrive || []).join(', '), (v) => { const p = v.split(/[ ,]+/).map(Number); if (p.length === 2 && p.every((n) => n >= 0 && n < GRID)) { l.arrive = p; changed(); drawMini(); } }))),
+        h('div', { class: 'dim', style: { fontSize: '12px', margin: '6px 0 4px' } }, ok ? 'Click the other room’s floor to choose where the player appears (green = fine).' : 'The arrival tile must be free floor (not a door, link or furniture): click another tile.'), mini,
+        h('div', { class: 'row', style: { marginTop: '8px' } }, h('button', { class: 'small' + (st.linkSel === l.id ? ' on' : ''), onclick: () => { st.linkSel = l.id; st.tool = 'link'; drawToolbar(); hintText(); drawLists(); } }, 'Add tiles to this way'),
+          h('button', { class: 'small', onclick: () => { const b = P.interiors.find((x) => x.id === l.to); if (b) { st.sid = b.id; setSel([]); drawAll(); preview.now(); } } }, 'Go to that room')));
+    });
+    mount(body, h('div', { class: 'dim', style: { padding: '10px 12px', fontSize: '12px' } }, owners.length ? 'This is the entrance room of ' + owners.join(', ') + '. ' : 'Rooms reachable by ways from a building’s entrance room belong to that building. ',
+        'A way is a tile (or several) that takes the player to another room.'),
+      cards.length ? cards : h('div', { class: 'empty' }, others.length ? 'No way out of this room yet. Use the “Way to another room” tool and click floor tiles, or “+ Linked room”.' : 'Create a second room first: “+ Room” or “+ Linked room”.'));
   }
 
   // ---- materials

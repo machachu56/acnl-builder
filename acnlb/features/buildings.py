@@ -124,7 +124,7 @@ def stage_map(b, bld, base, fresh=False):
 def stage_added_icon(b, bld):
     """an added building gets its own cell of the map's icon sheet (the plugin points its map icon there)"""
     ic = bld.get("map_icon") or {}
-    if not ic.get("image"):
+    if not ic.get("image") and ic.get("shape", "none") in ("none", "image"):
         return None
     used = b.cfg.setdefault("icon_frames", [])
     if len(used) >= len(SPARE_ICON_FRAMES):
@@ -133,11 +133,16 @@ def stage_added_icon(b, bld):
         return None
     frame = SPARE_ICON_FRAMES[len(used)]
     used.append(frame)
-    from modkit.paint import resize
-    rows = texmod.load_png(project.asset_path(b.proj["id"], ic["image"]))
-    if (len(rows[0]), len(rows)) != (16, 16):
-        rows = [[tuple(int(v) for v in p) for p in r] for r in resize(rows, 16, 16)]
-    cells = {"tc_mpi_A_00": rows, "tc_mpi_A_01": uipatch.highlight_rows(rows)}
+    if ic.get("image"):
+        from modkit.paint import resize
+        rows = texmod.load_png(project.asset_path(b.proj["id"], ic["image"]))
+        if (len(rows[0]), len(rows)) != (16, 16):
+            rows = [[tuple(int(v) for v in p) for p in r] for r in resize(rows, 16, 16)]
+        cells = {"tc_mpi_A_00": rows, "tc_mpi_A_01": uipatch.highlight_rows(rows)}
+    else:                                           # one of the built-in shapes
+        fill, outline = paintx.rgba(ic.get("fill", "#f6548c")), paintx.rgba(ic.get("outline", "#78143c"))
+        cells = {"tc_mpi_A_00": uipatch.icon_rows(ic["shape"], fill, (255, 214, 230, 255), outline),
+                 "tc_mpi_A_01": uipatch.icon_rows(ic["shape"], (255, 0, 255, 255), (255, 200, 255, 255), (255, 255, 255, 255))}
     b.put(uipatch.MAP, uipatch.patch_map(uipatch.expand_icon_sheet(b.game(uipatch.MAP)), cells, at=uipatch.frame_cell(frame)))
     bld["_icon_frame"] = frame
     return frame
@@ -179,10 +184,8 @@ def compile(b):
                 entry["icon_frame"] = bld["_icon_frame"]
         if bld.get("rect"):
             entry["rect"] = bld["rect"]
-        if bld.get("interior") or any(t.get("variant") == bld["id"] for t in b.proj["text"]) or any(e.get("building") == bld["id"] for e in b.proj["events"]):
+        if any(t.get("variant") == bld["id"] for t in b.proj["text"]) or any(e.get("building") == bld["id"] for e in b.proj["events"]):
             entry["variant"] = variant_of(bld)
-        if bld.get("interior"):
-            entry["jmp"] = "idr_%s.jmp" % bld["id"]
         for k in ("x", "y", "scene"):
             if entry[k] is None:
                 del entry[k]

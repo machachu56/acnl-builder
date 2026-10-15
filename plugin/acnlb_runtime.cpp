@@ -45,6 +45,7 @@ const uint32_t PROFILE_FTR_LAST = 0xeb;
 const int MAX_BUILDINGS = 56;
 const uint16_t EMPTY = 0xFC;
 const int MAX_MODS = 8;
+const int TILE = 32;
 
 /* the game's per-building lookups: function entry, register holding the building ID.
    Each is `cmp id, #0xFC` followed by a table read (or a default), see recomp notes */
@@ -63,29 +64,57 @@ const uint32_t FN_MAP_ICON_FOR = 0x221f60;   /* widget *icon_for(map, u8 id) */
 const uint32_t FN_MAP_ICON_KIND = 0x60ce78;  /* void set_kind(widget, kind) */
 const uint32_t MAP_KIND_BASE = 0x9523e0;     /* u8 base kind per widget type (0, 15, 22) */
 
+/* a building's interior can have several rooms ("pages"): each its own room model (a RomFS variant) and
+   collision grid. Link tiles of a page are exit tiles; when the game starts leaving the building and the
+   player stands on one, the plugin turns the scene change into an arrival in the linked room. */
+const int MAX_PAGES = 8, MAX_LINKS = 8;
+const uint32_t PROFILE_PLAYER = 0x69;        /* the player's actor; its position is at +0x14 */
+const int SCENE_ARRIVE_INDOOR = 0x2f;        /* first stack argument of a scene change that arrives through a door */
+struct Link { int x, y, to, ax, ay, yaw; };
+struct Page {
+    char variant[40];             /* RomFS variant with this room's model */
+    char jmp_file[48];            /* its collision grid file */
+    uint32_t jmp;                 /* guest copy of the grid */
+    Link links[MAX_LINKS];
+    int nlinks;
+};
 struct Building {
     char id[32];
     char model[16];               /* name the game looks the model up by */
-    char variant[32];             /* RomFS variant switched on inside */
-    char jmp_file[48];            /* collision grid file of this mod */
-    int slot = -1;
-    int alias = -1;               /* new IDs: the building whose table rows this one shares */
-    int icon_frame = -1;          /* town-map icon: cell of the icon sheet (0..15), or -1 for the alias' own */
-    uint32_t name_ptr = 0, rect_ptr = 0;
-    int scene = -1;               /* interior scene, or -1 to keep the slot's own */
-    int room = 48;                /* indoor model index of the scene (Nook's Homes = 48) */
-    int x = -1, y = -1;           /* absolute position on the town grid, or -1 */
-    int dx = 4, dy = 7;           /* offset from the town hall when x/y are unset */
-    bool set_rect = false;
-    int rect[4] = {0, 0, 0, 0};
-    bool hide_furniture = false;
-    uint32_t jmp = 0;             /* guest copy of the collision grid */
+    char variant[32];             /* RomFS variant with the building's text, on inside any of its rooms */
+    Page pages[MAX_PAGES];
+    int npages;
+    int slot;
+    int alias;                    /* virtual buildings: the building whose table rows this one shares */
+    int icon_frame;               /* town-map icon: cell of the icon sheet, or -1 for the alias' own */
+    uint32_t name_ptr, rect_ptr;
+    int scene;                    /* interior scene, or -1 to keep the slot's own */
+    int room;                     /* indoor model index of the scene (Nook's Homes = 48) */
+    int x, y;                     /* absolute position on the town grid, or -1 */
+    int dx, dy;                   /* offset from the town hall when x/y are unset */
+    bool set_rect;
+    int rect[4];
+    bool hide_furniture;
 };
+
+/* the plugin has no static constructors (no libc start-up), so every struct is plain data, zeroed, and set up here */
+void init_building(Building &b) {
+    memset(&b, 0, sizeof b);
+    b.slot = b.alias = b.icon_frame = b.scene = -1;
+    b.room = 48;
+    b.x = b.y = -1;
+    b.dx = 4;
+    b.dy = 7;
+}
 
 Building g_b[MAX_MODS];
 int g_nb;
 int g_cur = -1;                   /* building whose door the player used, or -1 */
+int g_page = 0;                   /* the room of that building the player is in */
+bool g_trace = false, g_debug_enter = false;
 uint8_t g_scene_owner[0xA5];      /* the building ID each scene normally leads out to */
+
+void select_page(Building &b, int page);
 
 bool is_space(char c) { return c == ' ' || c == '\t' || c == '\r'; }
 
@@ -101,7 +130,6 @@ void set_key(Building &b, const char *key, const char *val) {
     if (!strcmp(key, "id")) copy_str(b.id, sizeof b.id, val);
     else if (!strcmp(key, "model")) copy_str(b.model, sizeof b.model, val);
     else if (!strcmp(key, "variant")) copy_str(b.variant, sizeof b.variant, val);
-    else if (!strcmp(key, "jmp")) copy_str(b.jmp_file, sizeof b.jmp_file, val);
     else if (!strcmp(key, "slot")) b.slot = (int)v;
     else if (!strcmp(key, "alias")) b.alias = (int)v;
     else if (!strcmp(key, "icon_frame")) b.icon_frame = (int)v;
@@ -127,6 +155,24 @@ void set_key(Building &b, const char *key, const char *val) {
     }
 }
 
+void set_page_key(Page &p, const char *key, const char *val) {
+    if (!strcmp(key, "variant")) copy_str(p.variant, sizeof p.variant, val);
+    else if (!strcmp(key, "jmp")) copy_str(p.jmp_file, sizeof p.jmp_file, val);
+    else if (!strcmp(key, "link") && p.nlinks < MAX_LINKS) {      /* link = x, y, to page, arrival x, y, yaw */
+        int v[6] = {0, 0, 0, 0, 0, 0};
+        const char *q = val;
+        for (int k = 0; k < 6; k++) {
+            char *e;
+            v[k] = (int)acnl_strtol(q, &e, 0);
+            if (e == q) break;
+            q = e;
+            while (is_space(*q)) q++;
+            if (*q == ',') q++;
+        }
+        p.links[p.nlinks++] = {v[0], v[1], v[2], v[3], v[4], v[5]};
+    }
+}
+
 /* acnlb.cfg: "[building]" starts a section, "key = value" lines, '#' comments */
 void load_config() {
     static char text[8192];
@@ -135,6 +181,7 @@ void load_config() {
     if (n > (int)sizeof text - 1) n = sizeof text - 1;
     text[n] = 0;
     Building *cur = nullptr;
+    Page *page = nullptr;
     for (char *line = text; *line;) {
         char *end = line;
         while (*end && *end != '\n') end++;
@@ -143,8 +190,9 @@ void load_config() {
         for (char *h = line; *h; h++) if (*h == '#') { *h = 0; break; }
         while (is_space(*line)) line++;
         if (*line == '[') {
-            cur = nullptr;
-            if (!memcmp(line, "[building]", 10) && g_nb < MAX_MODS) cur = &g_b[g_nb++];
+            page = nullptr;
+            if (!memcmp(line, "[building]", 10)) { cur = g_nb < MAX_MODS ? &g_b[g_nb++] : nullptr; if (cur) init_building(*cur); }
+            else if (!memcmp(line, "[page]", 6) && cur && cur->npages < MAX_PAGES) page = &cur->pages[cur->npages++];
         } else if (cur) {
             char *eq = line;
             while (*eq && *eq != '=') eq++;
@@ -156,7 +204,7 @@ void load_config() {
                 while (is_space(*val)) val++;
                 char *ve = val + strlen(val);
                 while (ve > val && is_space(ve[-1])) *--ve = 0;
-                set_key(*cur, line, val);
+                if (page) set_page_key(*page, line, val); else set_key(*cur, line, val);
             }
         }
         line = next;
@@ -181,14 +229,17 @@ bool footprint(uint32_t id, int r[4]) {
 /* does a building `id` at (x, y) overlap (or touch) one of the town's buildings? */
 bool crowded(uint32_t blk, uint32_t id, int x, int y) {
     int a[4];
-    if (!footprint(id, a)) return false;
+    if (!footprint(id, a)) { if (g_trace) acnl_log("builder: no footprint for id %#x", id); return false; }
     for (int i = 0; i < MAX_BUILDINGS; i++) {
         uint32_t e = blk + 8 + i * 4;
         uint16_t oid = acnl_rd16(e);
         int b[4];
         if (oid == EMPTY || !footprint(oid, b)) continue;
         int ox = acnl_rd8(e + 2), oy = acnl_rd8(e + 3);
-        if (x + a[2] + 1 >= ox + b[0] && x + a[0] - 1 <= ox + b[2] && y + a[3] + 1 >= oy + b[1] && y + a[1] - 1 <= oy + b[3]) return true;
+        if (x + a[2] + 1 >= ox + b[0] && x + a[0] - 1 <= ox + b[2] && y + a[3] + 1 >= oy + b[1] && y + a[1] - 1 <= oy + b[3]) {
+            if (g_trace) acnl_log("builder: (%d,%d) overlaps %#x at %d,%d", x, y, oid, ox, oy);
+            return true;
+        }
     }
     return false;
 }
@@ -198,8 +249,27 @@ void ensure_buildings() {
     uint32_t save = acnl_rd32(SAVE_PTR);
     if (!save) return;
     uint32_t blk = save + TOWN_BUILDINGS;
+    /* entries with an ID above 0xFB (other than "empty") are no buildings: clear such leftovers (an earlier build of
+       this plugin could write 0xFF) so they neither pile up nor block the spot */
+    for (int i = 0; i < MAX_BUILDINGS; i++) {
+        uint32_t e = blk + 8 + i * 4;
+        uint16_t id = acnl_rd16(e);
+        if (id != EMPTY && id > 0xFB) {
+            acnl_wr16(e, EMPTY);
+            acnl_wr8(blk + 4, (uint8_t)(acnl_rd8(blk + 4) - 1));
+            acnl_log("builder: cleared a leftover entry (%#x at %d, %d)", id, acnl_rd8(e + 2), acnl_rd8(e + 3));
+        }
+    }
+    if (g_trace) {
+        acnl_log("builder: town buildings (count %d):", acnl_rd8(blk + 4));
+        for (int i = 0; i < MAX_BUILDINGS; i++) {
+            uint32_t e = blk + 8 + i * 4;
+            if (acnl_rd16(e) != EMPTY) acnl_log("   #%d id %#x at %d, %d", i, acnl_rd16(e), acnl_rd8(e + 2), acnl_rd8(e + 3));
+        }
+    }
     for (int k = 0; k < g_nb; k++) {
         Building &b = g_b[k];
+        if (g_trace) acnl_log("builder: ensure %s: slot %d alias %d x %d y %d dx %d dy %d npages %d", b.id, b.slot, b.alias, b.x, b.y, b.dx, b.dy, b.npages);
         int free_slot = -1;
         bool have = false;
         for (int i = 0; i < MAX_BUILDINGS; i++) {
@@ -246,8 +316,17 @@ Saved s_jmp;
 int hook_jmp_block_pre(void *) { push(s_jmp, acnl_reg(1)); return ACNL_CONTINUE; }
 void hook_jmp_block_post(void *) {
     uint32_t index = pop(s_jmp);
-    if (g_cur >= 0 && g_b[g_cur].jmp && index == JMP_INDOOR_BASE + (uint32_t)g_b[g_cur].room && acnl_reg(0))
-        acnl_set_reg(0, g_b[g_cur].jmp);
+    if (g_cur >= 0 && g_page < g_b[g_cur].npages && g_b[g_cur].pages[g_page].jmp && index == JMP_INDOOR_BASE + (uint32_t)g_b[g_cur].room && acnl_reg(0))
+        acnl_set_reg(0, g_b[g_cur].pages[g_page].jmp);
+}
+
+/* the player's actor, remembered when the game creates it: its position tells which link tile it stands on */
+uint32_t g_player = 0;
+Saved s_prof;
+int hook_actor_track_pre(void *) { push(s_prof, acnl_reg(0) & 0xFFFF); return ACNL_CONTINUE; }
+void hook_actor_track_post(void *) {
+    uint32_t prof = pop(s_prof), a = acnl_reg(0);
+    if (prof == PROFILE_PLAYER && a >= 0x100000) g_player = a;
 }
 
 /* furniture actors (Tom Nook's exhibits...): a building with its own furnished room creates none */
@@ -320,6 +399,58 @@ int hook_map_icon_kind_pre(void *) {
     return ACNL_CONTINUE;
 }
 
+/* scene changes: leaving a room by a link tile goes to another room of the same building instead of outdoors.
+   BUILDER_TRACE=1 logs every scene change (arguments: scene, position, angles, stack kind). */
+const uint32_t FN_GOTO_SCENE = 0x5b4bd0;   /* bool goto(obj, u8 scene, float pos[3], u16 angle[3], f32, stack: kind, ?) */
+const uint32_t SCENE_STATE = 0x956320;     /* +2 current scene, +3 next */
+int hook_goto_pre(void *) {
+    uint32_t cur = acnl_rd8(SCENE_STATE + 2), want = acnl_reg(1) & 0xFF, sp = acnl_reg(13);
+    if (g_debug_enter && g_nb && g_b[0].scene >= 0 && cur == 0 && want != 0 && want != (uint32_t)g_b[0].scene) {
+        /* BUILDER_DEBUG_ENTER=1: the first door the player uses leads into the first building (for testing) */
+        float np[3] = {256.0f, 32.0f, 464.0f};
+        uint16_t na[3] = {0, 32768, 0};
+        acnl_write(acnl_reg(2), np, 12);
+        acnl_write(acnl_reg(3), na, 6);
+        acnl_set_reg(1, (uint32_t)g_b[0].scene);
+        g_cur = 0;
+        for (int k = 0; k < g_b[0].npages; k++) acnl_set_romfs_variant(g_b[0].pages[k].variant, k == 0);
+        if (g_b[0].variant[0]) acnl_set_romfs_variant(g_b[0].variant, 1);
+        g_page = 0;
+        want = acnl_reg(1) & 0xFF;
+    }
+    if (g_cur >= 0 && g_page < g_b[g_cur].npages && cur == (uint32_t)g_b[g_cur].scene && want == 0 && g_player) {
+        Building &b = g_b[g_cur];
+        Page &pg = b.pages[g_page];
+        float pos[3];
+        if (acnl_read(g_player + 0x14, pos, 12) == 0) {
+            int tx = (int)(pos[0] / TILE), ty = (int)(pos[2] / TILE);
+            for (int l = 0; l < pg.nlinks; l++) {
+                const Link &k = pg.links[l];
+                if (k.x != tx || k.y != ty || k.to < 0 || k.to >= b.npages) continue;
+                float np[3] = {k.ax * TILE + TILE / 2.0f, 32.0f, k.ay * TILE + TILE / 2.0f};
+                uint16_t na[3] = {0, (uint16_t)k.yaw, 0};
+                acnl_write(acnl_reg(2), np, 12);
+                acnl_write(acnl_reg(3), na, 6);
+                acnl_wr32(sp, SCENE_ARRIVE_INDOOR);
+                acnl_wr32(sp + 4, 0);
+                acnl_set_reg(1, (uint32_t)b.scene);
+                select_page(b, k.to);
+                acnl_log("builder: %s: room %d -> room %d (tile %d,%d)", b.id, (int)(&pg - b.pages), k.to, tx, ty);
+                break;
+            }
+        }
+    }
+    if (g_trace) {
+        float pos[3] = {0, 0, 0};
+        uint16_t ang[3] = {0, 0, 0};
+        acnl_read(acnl_reg(2), pos, 12);
+        acnl_read(acnl_reg(3), ang, 6);
+        acnl_log("goto: scene %u -> %u pos %.2f %.2f %.2f ang %u %u %u stack %x %x", cur, acnl_reg(1) & 0xFF, pos[0], pos[1], pos[2],
+                 ang[0], ang[1], ang[2], acnl_rd32(sp), acnl_rd32(sp + 4));
+    }
+    return ACNL_CONTINUE;
+}
+
 Saved s_building;
 int hook_building_scene_pre(void *) {
     uint32_t id = acnl_reg(0);
@@ -333,8 +464,11 @@ void hook_building_scene_post(void *) {
     g_cur = find_building(bld);
     if (Building *nb = new_id_building(bld))
         if (nb->scene >= 0) acnl_set_reg(0, (uint32_t)nb->scene);
-    for (int i = 0; i < g_nb; i++)
+    for (int i = 0; i < g_nb; i++) {
         if (g_b[i].variant[0]) acnl_set_romfs_variant(g_b[i].variant, i == g_cur);
+        for (int k = 0; k < g_b[i].npages; k++) acnl_set_romfs_variant(g_b[i].pages[k].variant, i == g_cur && k == 0);
+    }
+    g_page = 0;
     uint32_t scene = acnl_reg(0);
     if (scene >= 0xA5) return;
     /* the scene's exit leads to the building listed for it: the one whose door the player used, else the original */
@@ -347,22 +481,29 @@ int hook_place_town_buildings_pre(void *) {
     return ACNL_CONTINUE;
 }
 
-bool load_jmp(Building &b) {
-    if (!b.jmp_file[0]) return false;
-    b.jmp = acnl_alloc(JMP_SIZE, 4);
+bool load_jmp(Building &b, Page &pg) {
+    if (!pg.jmp_file[0]) return false;
+    pg.jmp = acnl_alloc(JMP_SIZE, 4);
     static uint8_t buf[JMP_SIZE];
-    if (b.jmp && acnl_read_file(b.jmp_file, buf, JMP_SIZE) == (int)JMP_SIZE && acnl_write(b.jmp, buf, JMP_SIZE) == 0) return true;
-    b.jmp = 0;
-    acnl_log("builder: %s missing: %s keeps the original walls", b.jmp_file, b.id);
+    if (pg.jmp && acnl_read_file(pg.jmp_file, buf, JMP_SIZE) == (int)JMP_SIZE && acnl_write(pg.jmp, buf, JMP_SIZE) == 0) return true;
+    pg.jmp = 0;
+    acnl_log("builder: %s missing: %s keeps the original walls", pg.jmp_file, b.id);
     return false;
 }
+
+/* switch on the room (page) of a building: its room model variant */
+void select_page(Building &b, int page) {
+    g_page = page;
+    for (int k = 0; k < b.npages; k++) acnl_set_romfs_variant(b.pages[k].variant, k == page);
+}
+
 
 }  // namespace
 
 extern "C" int acnl_mod_init(void) {
     for (int i = 0; i < 0xA5; i++) g_scene_owner[i] = acnl_rd8(SCENE_BLD_TABLE + i);     /* who each interior leads out to */
     load_config();
-    bool any_jmp = false, any_hide = false, any_new = false;
+    bool any_jmp = false, any_hide = false, any_new = false, any_links = false;
     for (int i = 0; i < g_nb; i++) {
         Building &b = g_b[i];
         bool fresh = b.alias >= 0;                 /* virtual: answered by hooks */
@@ -385,7 +526,8 @@ extern "C" int acnl_mod_init(void) {
             if (b.set_rect)
                 for (int k = 0; k < 4; k++) acnl_wr8(BLD_RECT_TABLE + b.slot * 4 + k, (uint8_t)(int8_t)b.rect[k]);
         }
-        if (load_jmp(b)) any_jmp = true;
+        for (int k = 0; k < b.npages; k++) if (load_jmp(b, b.pages[k])) any_jmp = true;
+        for (int k = 0; k < b.npages; k++) for (int l = 0; l < b.pages[k].nlinks; l++) any_links = true;
         if (b.hide_furniture) any_hide = true;
         acnl_log("builder: building %s: ID %#x, model %s, interior scene %d", b.id, b.slot, b.model, b.scene);
     }
@@ -405,6 +547,11 @@ extern "C" int acnl_mod_init(void) {
         if (acnl_hook(FN_BLD_NAME, hook_name_pre, nullptr, nullptr) != 0) return -1;
         if (acnl_hook(FN_BLD_RECT_PTR, hook_rect_ptr_pre, nullptr, nullptr) != 0) return -1;
     }
+    char tr[8];
+    g_trace = acnl_getenv("BUILDER_TRACE", tr, sizeof tr) >= 0;
+    g_debug_enter = acnl_getenv("BUILDER_DEBUG_ENTER", tr, sizeof tr) >= 0;
+    if ((any_links || g_trace || g_debug_enter) && acnl_hook(FN_GOTO_SCENE, hook_goto_pre, nullptr, nullptr) != 0) return -1;
+    if (any_links && acnl_hook(FN_ACTOR_CREATE, hook_actor_track_pre, hook_actor_track_post, nullptr) != 0) return -1;
     if (any_hide && acnl_hook(FN_ACTOR_CREATE, hook_actor_create_pre, nullptr, nullptr) != 0) return -1;
     if (any_jmp && acnl_hook(FN_JMP_BLOCK, hook_jmp_block_pre, hook_jmp_block_post, nullptr) != 0) return -1;
     return 0;
