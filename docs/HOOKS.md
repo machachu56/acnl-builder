@@ -64,6 +64,11 @@ call goes on. `@on_spawn(X)` + `add_actor(Y, x, y)` uses it: when the game spawn
 X's parameter block with the tile written in, and the stack copies changed to match, so Y is created in the same phase as the game's own characters
 (before the model-loading batch). A first attempt that kept X's record and block produced X's model and place (Tom Nook where Isabelle was asked for).
 
+**The model**: a special character's class does not load its own model file; it takes the model the place loaded for the character it was
+spawned with (Nook's Homes loads `rci` = Tom Nook, `ott` and `otg` = the two otters). So the added Isabelle (`AcNpcSpSecretaryIn`, correct
+class) showed Tom Nook's model. The builder therefore puts the added character's own model file (`sza` for Isabelle, with the chosen outfit)
+in place of `rci.bcres`, in the variant of that room only, and hides Tom Nook in that room (he would wear it too).
+
 ## What the plugin hooks by itself
 
 These were found for the Builder and are used by buildings, rooms and scripts:

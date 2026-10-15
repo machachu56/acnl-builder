@@ -9,6 +9,9 @@ NEEDS_TEST = "uses %s(), which is implemented but whose effect in the game has n
 
 
 ADD = "add"                # an extra character: the game's own stay
+# special characters' model files (/Npc/Special/Model/<code>.bcres), seen in the game: a character added with @on_spawn takes the model
+# the room loaded for the character it was spawned with, so the room gets that file replaced by the added character's own
+MODEL_CODE = {"Isabelle": "sza", "Tom Nook": "rci"}
 SPARE = "spare"            # a spare slot: one of the furniture actors the game creates in the room (no character is replaced)
 FTR_FIRST, FTR_LAST = 0xBB, 0xEB
 
@@ -39,8 +42,9 @@ def cast_source(proj):
                     # an extra character, in addition to everybody: spawned together with `trigger` (an actor the game spawns in that room)
                     trig = c.get("trigger") or "Tom Nook"
                     tile = ("%d, %d" % (int(c["x"]), int(c["y"]))) if c.get("x") is not None and c.get("y") is not None else "8, 8"
-                    pre = '        wear("%s", "%s")\n' % (c["villager"], c["outfit"]) if c.get("villager") and c.get("outfit") else ""
-                    out.append('@on_spawn("%s")\ndef add_%d():\n    if %s:\n%s        add_actor("%s", %s)\n' % (trig, n, here, pre, c["with"], tile))
+                    out.append('@on_spawn("%s")\ndef add_%d():\n    if %s:\n        add_actor("%s", %s)\n' % (trig, n, here, c["with"], tile))
+                    # the character it is spawned with is not shown in that room: it would wear the added character's model
+                    out.append('@on_actor("%s")\ndef add_%d_frees_its_model():\n    if %s:\n        hide_actor()\n' % (trig, n, here))
                 elif c.get("replace") == SPARE:
                     spares.append((here, body))
                 else:
@@ -65,7 +69,40 @@ def cast_source(proj):
     return "from acnl import *\n\n" + "\n".join(out) if out else ""
 
 
+def stage_added_models(b):
+    """for every added character: the room where it is added loads the added character's model in place of the model of the character it is
+    spawned with (with the outfit chosen for it), in that room's variant only"""
+    from . import interiors as intfeat, textures as texmod
+    from .. import project, rom
+    for sc in b.proj.get("interiors", []):
+        for c in sc.get("cast") or []:
+            if c.get("replace") != ADD or not c.get("with"):
+                continue
+            trig = c.get("trigger") or "Tom Nook"
+            src, dst = MODEL_CODE.get(c["with"]), MODEL_CODE.get(trig)
+            if not src or not dst:
+                raise ValueError("Characters: adding %s next to %s is not possible yet: the model file of %s is not known"
+                                 % (c["with"], trig, c["with"] if not src else trig))
+            data = rom.read("/Npc/Special/Model/%s.bcres" % src)
+            if c.get("villager") and c.get("outfit"):
+                v = next((x for x in b.proj["villagers"] if x["id"] == c["villager"]), None)
+                o = next((x for x in (v or {}).get("outfits") or [] if x["id"] == c["outfit"]), None)
+                if o:
+                    data = texmod.replace_in(data, {n: texmod.load_png(project.asset_path(b.proj["id"], png)) for n, png in o["textures"].items()})
+            for bld in [x for x in b.proj["buildings"] if x.get("interior") == sc["id"]]:
+                rooms = [s["id"] for s in intfeat.reachable(b.proj, bld["interior"])]
+                if c.get("room"):
+                    if c["room"] not in rooms:
+                        continue
+                    variant = intfeat.page_variant(bld, rooms.index(c["room"]))
+                else:
+                    variant = "b_" + bld["id"]
+                b.put("/Npc/Special/Model/%s.bcres" % dst, data, variant)
+                b.note("characters: %s added in %s (%s), %s's model swapped for theirs there" % (c["with"], c.get("room") or bld["id"], variant, trig))
+
+
 def compile(b):
+    stage_added_models(b)
     scripts = [s for s in b.proj.get("scripts", []) if s.get("enabled", True) and (s.get("code") or "").strip()]
     generated = cast_source(b.proj)
     if generated:
