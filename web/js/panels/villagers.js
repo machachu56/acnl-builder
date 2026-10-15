@@ -72,25 +72,35 @@ export function render(root, app) {
     await put(`/api/project/${S.pid}/asset/${encodeURIComponent(name)}`, blob);
     o.textures = { ...(o.textures || {}), [tex]: name };
   }
-  async function newOutfit(v, ensure, fromFile) {
+  // a new outfit is a CLONE of a look: the game's original texture stays as it is, so both exist in the game
+  async function newOutfit(v, ensure) {
     const tex = await bodyTexture(v); if (!tex) { toast('This model has no texture that can be edited', 'error'); return; }
-    let img = null;
-    if (fromFile) {
-      const f = await pickFile('image/png,image/*'); if (!f) return;
-      img = await loadImage(URL.createObjectURL(f));
-      if (img.width % 8 || img.height % 8) { toast('Width and height must be multiples of 8', 'error'); return; }
-    }
-    const name = await prompt(fromFile ? 'Outfit from a PNG' : 'New outfit', 'Name', 'Work clothes'); if (!name) return;
-    const vv = ensure(); vv.outfits = vv.outfits || [];
-    let id = slug(name); for (let n = 2; vv.outfits.some((x) => x.id === id); n++) id = slug(name) + n;
-    const o = { id, name, textures: {} };
+    const e0 = P.villagers.find((x) => x.id === v.id), others = (e0 && e0.outfits) || [];
+    const name = h('input', { type: 'text', value: 'New outfit' });
+    const from = select([['original', 'a copy of the game’s original look'], ['current', 'a copy of what the game will show now (your skin edits / default outfit)'], ...others.map((o) => ['o:' + o.id, 'a copy of the outfit “' + o.name + '”']), ['blank', 'blank (transparent: paint it from scratch)'], ['file', 'a PNG file from my computer…']], 'original', () => {});
+    if (!await modal('New outfit for ' + v.name, h('div', { class: 'col' }, field('Name', name), field('Start from', from), h('div', { class: 'dim', style: { fontSize: '12px', maxWidth: '420px' } }, 'The original is never changed. Outfits can be worn per place or time by Interiors > Characters and by scripts (wear), so the normal look and the new one both exist in the game.')), [{ label: 'Cancel', value: false }, { label: 'Create', value: true, primary: true }])) return;
+    let src;
     try {
-      const c = document.createElement('canvas'); const src = img || await currentLook(v, tex);
-      c.width = src.width; c.height = src.height; c.getContext('2d').drawImage(src, 0, 0);
+      const ov = from.value;
+      if (ov === 'file') {
+        const f = await pickFile('image/png,image/*'); if (!f) return;
+        src = await loadImage(URL.createObjectURL(f));
+        if (src.width % 8 || src.height % 8) { toast('Width and height must be multiples of 8', 'error'); return; }
+      } else if (ov === 'original') src = await loadImage('/api/game/texture?' + q({ path: v.model, name: tex }));
+      else if (ov === 'current') src = await currentLook(v, tex);
+      else if (ov.startsWith('o:')) src = await loadImage(outfitPng(v, others.find((o) => o.id === ov.slice(2)), tex));
+      else { const o = await loadImage('/api/game/texture?' + q({ path: v.model, name: tex })); src = document.createElement('canvas'); src.width = o.width; src.height = o.height; }
+    } catch (er) { toast('Could not read that look: ' + er.message, 'error'); return; }
+    const vv = ensure(); vv.outfits = vv.outfits || [];
+    const nm = name.value.trim() || 'New outfit';
+    let id = slug(nm); for (let n = 2; vv.outfits.some((x) => x.id === id); n++) id = slug(nm) + n;
+    const o = { id, name: nm, textures: {} };
+    try {
+      const c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.getContext('2d').drawImage(src, 0, 0);
       await saveOutfitImage(v, o, tex, c);
     } catch (er) { toast('Could not create the outfit: ' + er.message, 'error'); return; }
     vv.outfits.push(o); changed(); draw(); drawMain();
-    if (!fromFile) paintOutfit(v, o, tex);
+    if (from.value !== 'file') paintOutfit(v, o, tex);
   }
   async function paintOutfit(v, o, tex) {
     tex = tex || Object.keys(o.textures)[0];
@@ -127,7 +137,7 @@ export function render(root, app) {
     return h('div', { class: 'card', style: { marginTop: '14px' } }, h('h3', {}, 'Outfits'),
       h('div', { class: 'dim', style: { fontSize: '12px', marginBottom: '6px' } }, v.name + '’s clothes are painted on the body texture. An outfit is another version of it: paint one here or import a PNG (export one to edit it in another program). The one marked “worn by default” is what the mod ships; the others are kept for scripts that swap clothes in the game.'),
       outfits.map(row),
-      h('div', { class: 'row', style: { marginTop: '8px' } }, h('button', { onclick: () => newOutfit(v, ensure, false) }, '+ New outfit (paint)'), h('button', { onclick: () => newOutfit(v, ensure, true) }, '+ From a PNG…')));
+      h('div', { class: 'row', style: { marginTop: '8px' } }, h('button', { onclick: () => newOutfit(v, ensure) }, '+ New outfit (clone a look)…')));
   }
   async function showOutfit(v, o) {
     if (!viewer || !viewer.partTextures) return;

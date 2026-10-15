@@ -89,6 +89,7 @@ export function render(root, app) {
         t.name, P.textures.some((x) => x.file === st.model && x.name === t.name) ? ' ●' : '', t.supported ? '' : ' (read-only)'))),
       h('div', { class: 'toolbar' }, h('b', {}, st.model.replace(/^\//, '')),
         h('div', { class: 'grow' }),
+        st.model && st.model.startsWith('/Npc/') ? h('button', { class: 'small', title: 'Keep the game’s texture as it is and make a copy to repaint, for a villager or character outfit', onclick: cloneAsOutfit }, 'Clone as an outfit…') : null,
         h('button', { class: 'small danger', onclick: revert }, 'Revert to original')),
       h('div', { class: 'toolbar' }, h('span', { class: 'dim' }, 'Recolor'),
         h('button', { class: 'small', onclick: () => editor.px && editor.hueShift(30) }, 'Hue +30°'), h('button', { class: 'small', onclick: () => editor.px && editor.hueShift(-30) }, 'Hue −30°'),
@@ -98,6 +99,24 @@ export function render(root, app) {
       editorHost);
     if (!editor.px) mount(editorHost, h('div', { class: 'empty' }, 'Pick a texture tab above.'));
     else mount(editorHost, editor.el);
+  }
+  // a copy of this texture as an outfit of the character: the original texture stays untouched in the game
+  async function cloneAsOutfit() {
+    if (!st.model || !st.tex) return;
+    const vid = st.model.split('/').pop().replace('.bcres', '');
+    const name = await prompt('Clone as an outfit', 'Name of the new outfit', 'New outfit'); if (!name) return;
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 16) || 'outfit';
+    let e = P.villagers.find((x) => x.id === vid);
+    if (!e) { e = { id: vid, name: {}, catchphrase: {} }; if (st.model.includes('/Special/')) e.model = st.model; P.villagers.push(e); }
+    e.outfits = e.outfits || []; let id = slug; for (let n = 2; e.outfits.some((x) => x.id === id); n++) id = slug + n;
+    const asset = `outfit_${vid}_${id}_${st.tex.replace(/[^A-Za-z0-9]/g, '_')}.png`;
+    try {
+      const img = await loadImage(`/api/game/texture?${q({ path: st.model, name: st.tex })}`);       // the game's own look, not your edits of it
+      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; c.getContext('2d').drawImage(img, 0, 0);
+      await put(`/api/project/${S.pid}/asset/${encodeURIComponent(asset)}`, await new Promise((r) => c.toBlob(r, 'image/png')));
+    } catch (er) { toast('Could not clone: ' + er.message, 'error'); return; }
+    e.outfits.push({ id, name, textures: { [st.tex]: asset } }); changed();
+    toast('Outfit “' + name + '” created: paint it in Villagers', 'ok'); app.preset = null; app.go('villagers');
   }
   async function revert() {
     const i = P.textures.findIndex((x) => x.file === st.model && x.name === st.tex);
