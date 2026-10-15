@@ -73,6 +73,9 @@ def main():
     r = sub.add_parser("probe-report", help="summarise a game log written with the probe mod")
     r.add_argument("log")
     r.add_argument("--save", action="store_true", help="add the actors of this log to the names scripts can use")
+    f = sub.add_parser("fslog-report", help="which game files were read in each place (run the game with ACNL_FSLOG=1)")
+    f.add_argument("log")
+    f.add_argument("--find", help="only the places that read a file whose name contains this")
     sub.add_parser("list", help="list projects")
     sub.add_parser("doctor", help="check the toolchain")
     a = ap.parse_args()
@@ -104,6 +107,9 @@ def main():
         print(probe.report(text))
         if a.save:
             print("\n%d new actor name(s) saved: scripts can use them (@on_actor(\"ClassName\"))" % probe.save_actors(text))
+    elif a.cmd == "fslog-report":
+        from . import fslog
+        print(fslog.report(open(a.log, encoding="utf-8", errors="replace").read(), a.find))
     elif a.cmd == "list":
         for p in project.list_projects():
             print("%-20s %s" % (p["id"], p["title"]))

@@ -23,7 +23,7 @@ ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 
 def blank(pid, title=None):
     return {"format": FORMAT, "id": pid, "title": title or pid, "author": "", "description": "", "version": "1.0",
-            "text": [], "textures": [], "villagers": [], "designs": [], "buildings": [], "interiors": [], "events": [], "scripts": [], "actors": {}}
+            "text": [], "textures": [], "villagers": [], "designs": [], "buildings": [], "interiors": [], "events": [], "scripts": [], "actors": {}, "unsafe_ok": []}
 
 
 def project_dir(pid):

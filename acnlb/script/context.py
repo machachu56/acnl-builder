@@ -87,8 +87,9 @@ def is_function(addr):
 
 def build_ctx(proj):
     actors = all_actors(proj)
+    unsafe = {k: v for k, v in UNSAFE_BECOME.items() if k not in (proj.get("unsafe_ok") or [])}      # the person has chosen to try them
     return compiler.Ctx(
         buildings={b["id"]: rooms_of(proj, b) for b in proj.get("buildings", [])},
         villagers={v["id"]: [o["id"] for o in v.get("outfits") or []] for v in proj.get("villagers", [])},
-        actors=actors, is_function=is_function, resolve_method=resolve_method, unsafe_become=UNSAFE_BECOME,
+        actors=actors, is_function=is_function, resolve_method=resolve_method, unsafe_become=unsafe,
         conversations=[e["id"] for e in proj.get("events", []) if e.get("scope") == "script"])
