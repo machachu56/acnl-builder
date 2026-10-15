@@ -45,7 +45,7 @@ NATIVES = [
     N(11, "set_var", [("name", "str"), ("value", "int")], None, "ready", ANY, "Remember a value.", 'set_var("visits", get_var("visits") + 1)'),
     N(12, "log", [("message", "str"), ("value", "int?")], None, "ready", ANY, "Write a line (and an optional number) in the game's log: the easiest way to see that a script runs.", 'log("welcome played", hour())'),
     # ---- characters and clothes
-    N(13, "wear", [("villager", "villager"), ("outfit", "outfit")], None, "needs-test", ("enter", "leave", "room", "actor"),
+    N(13, "wear", [("villager", "villager"), ("outfit", "outfit")], None, "needs-test", ("enter", "leave", "room", "actor", "spawn"),
       "Dress a villager in one of the outfits you made for them (Villagers tab). The new clothes show the next time the game loads that villager's model, e.g. when you walk into a place they are in.",
       'wear("ant00", "work_clothes")'),
     N(14, "wear_default", [("villager", "villager")], None, "needs-test", ("enter", "leave", "room", "actor", "spawn"), "Back to the villager's normal clothes (the default outfit, or the game's).", 'wear_default("ant00")'),
