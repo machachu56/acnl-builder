@@ -59,6 +59,7 @@ def b():
     else:
         hide_actor()
         become(0x77)
+        place_actor(3, 4)
 
 @on_call(0x5c9380)
 def c():

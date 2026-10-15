@@ -443,7 +443,7 @@ sv::Program g_prog;
 bool g_scripts = false;
 int32_t g_vars[64];
 uint32_t g_rng = 0x2545F491u;
-struct ScriptState { bool hide, skip, become, place; uint32_t profile; float px, pz; int yaw; } g_sc;
+struct ScriptState { bool hide, skip, become, place, placeact; uint32_t profile; float px, pz; int yaw; int atx, atz; } g_sc;
 ScriptState g_entry_override;     /* place_player() from an @on_enter handler, used when the game puts the player in the room */
 bool g_has_override = false;
 
@@ -498,6 +498,7 @@ bool script_call(void *, int id, const int32_t *a, int n, int32_t *ret, bool *ha
     case 26: *ret = (int32_t)acnl_reg((uint32_t)a[0] & 15); *has = true; return true;
     case 27: acnl_set_reg((uint32_t)a[0] & 15, (uint32_t)a[1]); return true;
     case 28: g_sc.skip = true; return true;
+    case 29: g_sc.placeact = true; g_sc.atx = a[0]; g_sc.atz = a[1]; return true;
     }
     return false;
 }
@@ -527,6 +528,7 @@ void script_fire(int kind, const char *building, const char *room, uint32_t num,
     }
 }
 
+Saved s_script_pos;
 int hook_script_actor_pre(void *) {
     if (!g_scripts) return ACNL_CONTINUE;
     uint32_t arg = acnl_reg(0);
@@ -534,7 +536,16 @@ int hook_script_actor_pre(void *) {
     script_fire(sv::K_ACTOR, nullptr, nullptr, arg & 0xFFFF);
     if (g_sc.become) acnl_set_reg(0, (arg & ~0xFFFFu) | (g_sc.profile & 0xFFFF));
     if (g_sc.hide) { acnl_set_reg(0, 0); return ACNL_SKIP; }
+    push(s_script_pos, g_sc.placeact ? (uint32_t)(0x10000 | ((g_sc.atx & 0xFF) << 8) | (g_sc.atz & 0xFF)) : 0);     /* the post hook moves the new actor */
     return ACNL_CONTINUE;
+}
+
+void hook_script_actor_post(void *) {
+    uint32_t v = pop(s_script_pos), obj = acnl_reg(0);
+    if (!(v & 0x10000) || obj < 0x100000) return;
+    float x = ((v >> 8) & 0xFF) * (float)TILE + TILE / 2.0f, z = (v & 0xFF) * (float)TILE + TILE / 2.0f;
+    uint32_t base[2] = {0x14, 0x20};                 /* the actor's position, and the copy the game keeps beside it */
+    for (int i = 0; i < 2; i++) { acnl_write(obj + base[i], &x, 4); acnl_write(obj + base[i] + 8, &z, 4); }
 }
 
 int hook_script_call_pre(void *user) {
@@ -803,7 +814,7 @@ extern "C" int acnl_mod_init(void) {
             if (h.kind == sv::K_CALL && acnl_hook(h.num, hook_script_call_pre, nullptr, (void *)(intptr_t)i) != 0)
                 acnl_log("script: cannot hook %#x: it is not a function of the game, the trigger stays off", (unsigned)h.num);
         }
-        if (actors && acnl_hook(FN_ACTOR_CREATE, hook_script_actor_pre, nullptr, nullptr) != 0) return -1;
+        if (actors && acnl_hook(FN_ACTOR_CREATE, hook_script_actor_pre, hook_script_actor_post, nullptr) != 0) return -1;
     }
     if (any_jmp && acnl_hook(FN_JMP_BLOCK, hook_jmp_block_pre, hook_jmp_block_post, nullptr) != 0) return -1;
     return 0;

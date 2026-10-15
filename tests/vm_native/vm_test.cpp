@@ -41,6 +41,7 @@ static bool call(void *ctx, int id, const int32_t *a, int n, int32_t *ret, bool 
     case 17: printf("hide_actor()\n"); return true;
     case 18: printf("become(0x%x)\n", (unsigned)a[0]); return true;
     case 19: printf("place_player(%d, %d, %d)\n", a[0], a[1], a[2]); return true;
+    case 29: printf("place_actor(%d, %d)\n", a[0], a[1]); return true;
     case 20: case 21: case 22: {
         int nb = id == 20 ? 1 : id == 21 ? 2 : 4;
         if (a[0] < 0x1000 || a[0] + nb > 0x3000) return false;

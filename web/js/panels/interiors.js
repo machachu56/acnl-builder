@@ -690,16 +690,17 @@ export function render(root, app) {
     if (!st.knownActors) get('/api/script/reference').then((r) => { st.knownActors = r.actors || {}; if (st.tab === 'add') drawLists(); });
     const used = P.buildings.filter((b) => b.interior === sc.id);
     const row = (c) => h('div', { class: 'card', style: { padding: '8px', display: 'grid', gap: '6px' } },
-      h('div', { class: 'grid2' }, field('Instead of', select(STAFF, c.replace, (v) => { c.replace = v; changed(); })), field('Stands', select(people(), c.with, (v) => { c.with = v; changed(); }))),
+      h('div', { class: 'grid2' }, field('Use the place of', select(STAFF, c.replace, (v) => { c.replace = v; changed(); })), field('Put there', select([['', '(nobody: remove them)'], ...people()], c.with || '', (v) => { c.with = v; changed(); }))),
+      h('div', { class: 'grid2' }, field('Tile x (empty = the game’s spot)', numInput(c.x ?? '', (v) => { c.x = v; changed(); }, { min: 0, max: 15 })), field('Tile y', numInput(c.y ?? '', (v) => { c.y = v; changed(); }, { min: 0, max: 15 }))),
       h('div', { class: 'grid2' }, field('From (empty = always)', h('input', { type: 'time', value: c.from || '', onchange: (e) => { c.from = e.target.value; changed(); } })),
         field('Until', h('input', { type: 'time', value: c.to || '', onchange: (e) => { c.to = e.target.value; changed(); } }))),
-      checkbox(c.away, (v) => { c.away = v; changed(); }, 'Not at their usual place meanwhile (hidden elsewhere in the game)'),
+      checkbox(c.away, (v) => { c.away = v; changed(); }, 'Not at their usual place meanwhile (hidden elsewhere in the game, e.g. the town hall)'),
       h('button', { class: 'small ghost danger', onclick: () => { sc.cast.splice(sc.cast.indexOf(c), 1); changed(); drawLists(); } }, 'Remove'));
     return h('div', { class: 'card' }, h('h3', {}, 'Characters'),
-      h('div', { class: 'dim', style: { fontSize: '12px', marginBottom: '6px' } }, 'Nook’s Homes has three people at the counter. You cannot add a new one or choose the spot (the game places them), but you can have someone else stand in place of one of them, always or at certain hours, e.g. Isabelle after 22:00.'),
+      h('div', { class: 'dim', style: { fontSize: '12px', marginBottom: '6px' } }, 'The game creates three people in this room: Tom Nook, Honma and Takumi. A mod cannot create a fourth, but each of those three can be turned into anyone, and put on any tile. To ADD Isabelle and keep Tom Nook, give her Honma’s or Takumi’s place (and remove the one you do not want). Hours are optional: e.g. only after 22:00.'),
       used.length ? null : h('div', { class: 'warn-box', style: { marginBottom: '6px' } }, 'No building uses this interior yet, so nothing happens: give a building this interior in the Buildings tab.'),
       sc.cast.map(row),
-      h('button', { onclick: () => { sc.cast.push({ replace: 'Tom Nook', with: 'Isabelle', from: '22:00', to: '06:00', away: true }); changed(); drawLists(); } }, '+ Put someone at the counter'),
+      h('button', { onclick: () => { sc.cast.push({ replace: 'Honma', with: 'Isabelle', x: 8, y: 7, from: '', to: '', away: false }); changed(); drawLists(); } }, '+ Add a character'),
       h('div', { class: 'dim', style: { fontSize: '11px', marginTop: '6px' } }, 'Untested in the game: the swap is done when the building loads (it is compiled into the mod as a script when you export).'));
   }
 

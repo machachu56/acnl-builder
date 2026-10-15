@@ -63,6 +63,7 @@ midnight) · `in_building("id")`, `in_room("building", "room")` · `chance(25)` 
 | `wear("villager", "outfit")`, `wear_default("villager")` | dress a villager in an outfit you made (Villagers tab) | needs test |
 | `hide_actor()` | (in `@on_actor`) the game does not create that actor | needs test |
 | `become("Actor")` | (in `@on_actor`) create another actor in its place | needs test |
+| `place_actor(tile_x, tile_y)` | (in `@on_actor`) move the new actor to a tile once the game created it; with `become()` this *adds* a character in a spare slot | needs test |
 | `place_player(tile_x, tile_y, "north")` | (in `@on_enter`) where the player appears coming in | needs test |
 | `variant_on("name")`, `variant_off("name")` | switch a RomFS variant of the mod | needs test |
 | `read8/16/32(addr)`, `write8/16/32(addr, v)` | the game's memory | advanced |

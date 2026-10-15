@@ -55,6 +55,7 @@ NATIVES = [
     N(17, "hide_actor", [], None, "needs-test", ("actor",), "In an @on_actor handler: the game does not create this actor at all (the same hook as “No exhibits”). The villager is simply not there.", "@on_actor(\"Isabelle\")\ndef not_at_work():\n    if time_between(\"22:00\", \"06:00\"):\n        hide_actor()"),
     N(18, "become", [("actor", "actor")], None, "needs-test", ("actor",), "In an @on_actor handler: create another actor in this one's place (e.g. Isabelle where Tom Nook would stand).", 'become("Isabelle")'),
     N(19, "place_player", [("tile_x", "int"), ("tile_y", "int"), ("facing", "str")], None, "needs-test", ("enter",), "In an @on_enter handler: where the player appears when coming in (tile 0-15 of the room's plan) and which way they face: north, south, east or west.", 'place_player(8, 12, "north")'),
+    N(29, "place_actor", [("tile_x", "int"), ("tile_y", "int")], None, "needs-test", ("actor",), "In an @on_actor handler: put the actor on this tile (0-15 of the room's plan) once the game has created it. Together with become() this adds a character where the game creates a spare one.", "become(\"Isabelle\")\nplace_actor(8, 6)"),
     # ---- raw access: build new actions from scratch
     N(20, "read8", [("address", "int")], "int", "advanced", ANY, "Read a byte of the game's memory."),
     N(21, "read16", [("address", "int")], "int", "advanced", ANY, "Read 16 bits of the game's memory."),
