@@ -81,15 +81,16 @@ def pad8(img):
 
 
 def replacement(img, t):
-    """cgfx.rebuild texture entry (w, h, mips, pixels, fmt) for new pixels of texture `t` (same format)"""
+    """cgfx.rebuild texture entry (w, h, mips, pixels) for new pixels of texture `t`. The format stays the game's own, so no
+    format is given (cgfx.rebuild would then look for a GL format it only knows for ETC1)."""
     img = pad8(img)
     h, w = len(img), len(img[0])
     mips = t.mips
     while mips > 1 and (w >> (mips - 1) < 8 or h >> (mips - 1) < 8):
         mips -= 1
     if t.fmt in (12, 13):
-        return (w, h, mips, encode_cached(img, t.fmt, mips), t.fmt)
-    return (w, h, 1, encode_cached(img, t.fmt, 1), t.fmt)
+        return (w, h, mips, encode_cached(img, t.fmt, mips))
+    return (w, h, 1, encode_cached(img, t.fmt, 1))
 
 
 def _key(img, *parts):

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import threading
 
 from . import env
 
@@ -59,13 +60,18 @@ def migrate(p):
     return p
 
 
+_save_lock = threading.Lock()
+
+
 def save(p):
+    """write project.json atomically; saves can arrive together (autosave while an export saves), so one at a time"""
     d = project_dir(p["id"])
     os.makedirs(os.path.join(d, "assets"), exist_ok=True)
-    tmp = os.path.join(d, "project.json.tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(p, f, indent=1, ensure_ascii=False)
-    os.replace(tmp, os.path.join(d, "project.json"))
+    with _save_lock:
+        tmp = os.path.join(d, "project.json.%d.tmp" % threading.get_ident())
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(p, f, indent=1, ensure_ascii=False)
+        os.replace(tmp, os.path.join(d, "project.json"))
 
 
 def create(pid, title=None):

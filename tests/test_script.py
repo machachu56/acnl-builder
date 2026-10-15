@@ -198,3 +198,23 @@ class GameMapTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(env_ok and os.path.isfile(env.ROM), "game dump not available")
+class TextureFormats(unittest.TestCase):
+    def test_every_supported_format_can_be_replaced(self):
+        """a model's textures of any supported format (ETC1, RGBA4, ...) can be rebuilt (it failed with KeyError for RGBA4)"""
+        from acnlb import rom, texfmt
+        from acnlb.features import textures
+        from modkit import cgfx
+        seen = set()
+        for path in ("/Npc/Special/Model/sza.bcres", "/Npc/Normal/Model/ant00.bcres"):
+            d = rom.read(path)
+            for t in cgfx.textures(d):
+                if texfmt.supported(t.fmt) and t.fmt not in seen:
+                    seen.add(t.fmt)
+                    rows = [[(10, 200, 30, 255)] * t.w for _ in range(t.h)]
+                    new = textures.replace_in(d, {t.name: rows})
+                    t2 = [x for x in cgfx.textures(new) if x.name == t.name][0]
+                    self.assertEqual((t2.w, t2.h, t2.fmt), (t.w, t.h, t.fmt))
+        self.assertTrue(seen - {12, 13}, "no non-ETC1 texture was tried")
