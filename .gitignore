@@ -3,5 +3,7 @@ __pycache__/
 exports/
 *.tmp
 *.acmod
-# images made from the game's own textures (texture studio) are never committed
-projects/*/assets/tex_*.png
+# projects are people's own mods (and hold images made from the game's own textures): never committed
+projects/
+log4.txt
+log*.txt
