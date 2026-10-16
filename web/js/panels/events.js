@@ -1,7 +1,8 @@
 import { get, q } from '../api.js';
 import { S, changed, uid } from '../state.js';
 import { h, mount, toast, select, debounce, field, checkbox, confirmBox, textInput } from '../ui.js';
-import { previewBoxes, CODES, reactionPicker } from './dialogue.js';
+import { previewBoxes, CODES, reactionPicker, REACTIONS } from './dialogue.js';
+import { toRaw, fromRaw, rawGuide } from '../rawtalk.js';
 
 export const id = 'events', title = 'Events', icon = '✦', needsProject = true;
 const LANGS = ['en', 'es', 'fr', 'it', 'de'];
@@ -16,7 +17,7 @@ export function render(root, app) {
   const ev = () => P.events.find((e) => e.id === st.sel);
 
   function drawLeft() {
-    mount(left, h('div', { class: 'list' }, P.events.map((e) => h('div', { class: 'item' + (e.id === st.sel ? ' on' : ''), onclick: () => { st.sel = e.id; drawLeft(); drawMain(); } }, h('b', {}, e.id), h('span', { class: 'sub dim' }, (e.mode === 'rewrite' ? (e.edits || []).filter((x) => Object.values(x.text || {}).some(Boolean)).length + ' line' : (e.steps || []).length + ' msg')))), P.events.length ? null : h('div', { class: 'empty' }, 'No event yet')),
+    mount(left, h('div', { class: 'list' }, P.events.map((e) => h('div', { class: 'item' + (e.id === st.sel ? ' on' : ''), onclick: () => { st.sel = e.id; st.raw = false; drawLeft(); drawMain(); } }, h('b', {}, e.id), h('span', { class: 'sub dim' }, (e.mode === 'rewrite' ? (e.edits || []).filter((x) => Object.values(x.text || {}).some(Boolean)).length + ' line' : (e.steps || []).length + ' msg')))), P.events.length ? null : h('div', { class: 'empty' }, 'No event yet')),
       h('div', { style: { padding: '10px' } }, h('button', { class: 'primary', style: { width: '100%' }, onclick: add }, 'New conversation')));
   }
   async function named() { if (!st.named) st.named = await get('/api/events/flows'); return st.named; }
@@ -43,7 +44,37 @@ export function render(root, app) {
     const nextSelect = (cur, i, onPick, allowBelow) => select([...(allowBelow ? [['', i + 1 < e.steps.length ? 'Go on with the message below' : 'End the conversation']] : []), ['end', 'End the conversation'],
       ...e.steps.filter((x, k) => k !== i || !allowBelow).map((x) => [x.id, 'Go to ' + stepName(x.id)])], cur || (allowBelow ? '' : 'end'), onPick);
     const b = P.buildings.find((x) => x.id === e.building);
-    const tabs = h('div', { class: 'tabs', style: { margin: '10px 0' } }, LANGS.map((l) => h('button', { class: l === st.lang ? 'on' : '', onclick: () => { st.lang = l; drawMain(); } }, l.toUpperCase())));
+    // RAW: the whole conversation as text (one language), to copy to an AI and paste back
+    const applyRaw = () => {
+      const r = fromRaw(st.rawText || '', e.steps, st.lang);
+      if (r.errors.length) { st.rawErrors = r.errors; return false; }
+      e.steps = r.steps; st.rawErrors = []; changed(); return true;
+    };
+    const setRaw = (on) => {
+      if (on) { st.raw = true; st.rawText = toRaw(e.steps, st.lang); st.rawErrors = []; }
+      else if (applyRaw()) st.raw = false;
+      else toast('The RAW text has problems: they are listed under it', 'error', 3500);
+      drawMain();
+    };
+    const copy = (t, what) => navigator.clipboard.writeText(t).then(() => toast(what + ' copied', 'info', 2000), () => toast('Could not copy: select the text and copy it yourself', 'error'));
+    const tabs = h('div', { class: 'row', style: { margin: '10px 0', gap: '10px' } },
+      h('div', { class: 'tabs' }, LANGS.map((l) => h('button', { class: l === st.lang ? 'on' : '', onclick: () => { if (st.raw) { if (!applyRaw()) { toast('Fix the RAW text first', 'error'); drawMain(); return; } st.lang = l; st.rawText = toRaw(e.steps, l); } else st.lang = l; drawMain(); } }, l.toUpperCase()))),
+      e.mode === 'rewrite' ? null : h('button', { class: st.raw ? 'primary small' : 'small', title: 'The whole conversation as text, to copy and paste (e.g. to an AI)', onclick: () => setRaw(!st.raw) }, st.raw ? 'RAW: on (click to apply)' : 'RAW'));
+    const rawView = () => {
+      const ta = h('textarea', { rows: 26, spellcheck: false, style: { fontFamily: 'var(--mono)', fontSize: '12.5px', width: '100%' } }, st.rawText || '');
+      const errs = h('div', { class: (st.rawErrors || []).length ? 'warn-box' : '', style: { marginTop: '6px', whiteSpace: 'pre-wrap', fontSize: '12px' } }, (st.rawErrors || []).join('\n'));
+      ta.addEventListener('input', debounce(() => { st.rawText = ta.value; const r = fromRaw(ta.value, e.steps, st.lang); st.rawErrors = r.errors; errs.className = r.errors.length ? 'warn-box' : ''; errs.textContent = r.errors.length ? r.errors.join('\n') : 'Looks good: click “RAW: on” to apply.'; }, 300));
+      const guide = rawGuide(REACTIONS);
+      return h('div', { class: 'col' },
+        h('div', { class: 'row', style: { gap: '6px', marginBottom: '6px' } },
+          h('button', { class: 'small', onclick: () => copy(ta.value, 'The conversation') }, 'Copy the conversation'),
+          h('button', { class: 'small', onclick: () => copy(guide + '\n\nCONVERSATION (language: ' + st.lang + ')\n\n' + ta.value, 'The rules and the conversation') }, 'Copy for an AI (rules + conversation)'),
+          h('div', { class: 'grow' }), h('span', { class: 'dim', style: { fontSize: '12px' } }, 'Language: ' + st.lang.toUpperCase())),
+        ta, errs,
+        h('details', { class: 'info-box', style: { marginTop: '10px', fontSize: '12px' } }, h('summary', {}, 'The RAW format (an example to give an AI)'),
+          h('pre', { style: { whiteSpace: 'pre-wrap', fontFamily: 'var(--mono)', fontSize: '12px', maxHeight: '360px', overflow: 'auto' } }, guide),
+          h('button', { class: 'small', onclick: () => copy(guide, 'The format') }, 'Copy the format')));
+    };
     const insertAt = (c) => { const t = st.focus; if (!t) { toast('Click in a message first', 'info'); return; } t.setRangeText(c, t.selectionStart, t.selectionEnd, 'end'); t.dispatchEvent(new Event('input')); t.focus(); };
     const bind = (ta, get_, set_) => {
       ta.addEventListener('input', () => { set_(ta.value); changed(); showPreview(ta.value || get_(true) || ''); });
@@ -128,7 +159,7 @@ export function render(root, app) {
       h('div', { class: 'toolbar', style: { gap: '4px', border: '1px solid var(--line)', borderRadius: '6px', marginBottom: '10px' } }, h('span', { class: 'dim' }, 'Insert'), CODES.map(([l, c]) => h('button', { class: 'small', title: c, onclick: () => insertAt(c) }, l)), reactionPicker(insertAt)),
       e.mode === 'rewrite'
         ? h('div', { class: 'col' }, info.nodes.length ? info.nodes.map(rewriteCard) : h('div', { class: 'dim' }, 'No readable lines in this conversation.'))
-        : h('div', { class: 'col' }, e.steps.map(stepCard),
+        : st.raw ? rawView() : h('div', { class: 'col' }, e.steps.map(stepCard),
           h('div', { class: 'row', style: { gap: '6px' } },
             h('button', { onclick: () => { e.steps.push({ id: uid('c', e.steps), charge: 100 }); changed(); drawMain(); } }, '+ Charge Bells'),
             h('button', { onclick: () => { e.steps.push({ id: uid('k', e.steps), has_bells: 100, else: 'end' }); changed(); drawMain(); } }, '+ Check the player’s Bells')),
