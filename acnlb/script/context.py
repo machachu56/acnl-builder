@@ -9,6 +9,7 @@ KNOWN_ACTORS = {
     "Player": 0x69,
     # seen in a game log (probe, `AcPlayer` etc. by class name); the person behind each name is inferred from the class name, except Isabelle (confirmed)
     "Isabelle": 454,           # AcNpcSpSecretaryIn: Isabelle at the town hall counter (scene 38), confirmed in game
+    "AcNpcSpSecretaryOut": 455,  # Isabelle away from her counter: the game creates her with her model code ("sza") wherever she meets the player
     "Tom Nook": 492,           # AcNpcSpShopTanukichi: behind the counter of Nook's Homes (scene 65, the Baisodrome's interior too)
     "Honma": 419,              # AcNpcSpHonma: also in Nook's Homes
     "Takumi": 500,             # AcNpcSpTakumiRealEstate: also in Nook's Homes

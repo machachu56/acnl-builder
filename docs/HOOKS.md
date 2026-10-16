@@ -49,25 +49,41 @@ and only then change them. See [SCRIPTING.md](SCRIPTING.md). If the address is n
 
 ## Spawning extra actors (`add_actor`)
 
-The game spawns actors through one function (`0x51ef80`): `spawn(manager, &profile_record, r2, r3, stack...)`. From a probe log of the real game
-(`python3 -m acnlb probe --spawns`):
+The game spawns actors through one function (`0x51ef80`): `spawn(manager, &profile_record, slot, info, stack: mode...)`. From probe logs:
 
-* **r1** points into a table of 12-byte records, one per profile, each starting with the profile number: the record of profile *p* is at
-  `0x952FB0 + 12 * p` (Isabelle, 454: `0x9544f8`; Tom Nook, 492: `0x9546c0`).
-* **r3** points at a character's parameter block + 0x20; the block holds its place: x at `+0x0C`, y `+0x10`, z `+0x14` (Tom Nook: 288, 32, 400;
-  Isabelle at the town hall: 256, 32, 304) and an angle at `+0x18`.
-* The **stack** holds copies of the profile and of r3 (the callee reads them).
+* **r1** points into a table of 12-byte records, one per profile: the record of profile *p* is at `0x952FB0 + 12 * p`.
+* **r3** is an *info* block the new actor keeps at `+0x08`. Its `u32` at `+4` is a **model code** (`"sza"` for Isabelle): the game's own
+  "Isabelle comes out to meet you" (`0x69f890`) creates `AcNpcSpSecretaryOut` with it. With a code the character loads **its own model**;
+  without one (the counter staff of a place) it takes the model the place loaded for the character it was spawned with.
+* The **place** of a new actor is read through the pointers at `0x94cfd8` (position) / `0x94cfdc` (angles), which the game's
+  create-with-position function `0x57aa34` sets. Afterwards, counter characters are moved to their spot of the place (Isabelle to her
+  town hall spot) a second or so later, so the plugin holds an added character on its tile every frame (from the player's update).
+* `AcNpcSpSecretaryOut`'s code is not loaded inside Nook's Homes (creating it there crashed); `AcNpcSpSecretaryIn` with the model code works.
+* Away from her counter Isabelle talks with `NPC_Secretary_Inside` (line 029: "talk to me over the counter").
 
-A plugin cannot call game functions, so the runtime gained `acnl_call_again` / `acnl_call_again_patched` (`mods/sdk/acnl_mod.h`): from a hook's pre, the
-hooked function is run once more with other r0-r3 and a copy of the original stack arguments (words equal to given values replaced), then the original
-call goes on. `@on_spawn(X)` + `add_actor(Y, x, y)` uses it: when the game spawns X, the plugin runs the same spawn again with Y's own record, a copy of
-X's parameter block with the tile written in, and the stack copies changed to match, so Y is created in the same phase as the game's own characters
-(before the model-loading batch). A first attempt that kept X's record and block produced X's model and place (Tom Nook where Isabelle was asked for).
+A plugin cannot call game functions, so the runtime has `acnl_call_again(_patched)`: from a hook's pre, the hooked function runs once more
+with other r0-r3. `@on_spawn(X)` + `add_actor(Y, x, y)` uses it: when the game spawns X, the spawn runs again for Y with its own record,
+an info block with Y's model code, and the position pointers aimed at the tile. Nobody's model is replaced and nobody has to be hidden.
 
-**The model**: a special character's class does not load its own model file; it takes the model the place loaded for the character it was
-spawned with (Nook's Homes loads `rci` = Tom Nook, `ott` and `otg` = the two otters). So the added Isabelle (`AcNpcSpSecretaryIn`, correct
-class) showed Tom Nook's model. The builder therefore puts the added character's own model file (`sza` for Isabelle, with the chosen outfit)
-in place of `rci.bcres`, in the variant of that room only, and hides Tom Nook in that room (he would wear it too).
+## Rooms of a building (doors)
+
+All the rooms of a building are the same scene (65, Nook's Homes) with another room model and collision. What we learned the hard way:
+
+* **Exit tiles are doors.** Collision attribute `0x4007 + n` is door *n* of the scene. The player's update (`AcPlayer` method 9 →
+  `0x68cca0`) checks it may leave (`0x5c4d4c`: the player's state, `+0x1a9`, of kind 2 in the table at `0x841c20`), finds the door's index
+  (`0x5cd384`), asks whether the place handles that door itself (`0x754ce8`: Nook's Homes' door 0, the front door, is Tom Nook's:
+  he says goodbye, and the leaving happens from inside that conversation), then looks the door up (`0x5b40d8`) in the scene's door table
+  `*(0x956344 + scene * 4) + 0xc` → `{36-byte entries, count}`: `u8 destination scene` (×4), `+8` arrival place, `+0x14` angles,
+  `+0x20` **kind**: 4 a front door from outside (the shop music and greeting), 3 a door between rooms, 1/2 stairs. The tables are static data.
+* **Links used to ride on the front door**, and that broke everything after the room change: Tom Nook's goodbye stayed the conversation
+  in progress (the talk system, `*(0x95ceac)`, is not rebuilt for a change to the same scene), so nobody could be talked to and the next
+  exit never started. Now link tiles are doors 1-5 of their room: the plugin adds them to the door table (kind 3) while the player is in
+  that room, and the game changes rooms the way a house does. The plugin remembers which link tile the player stepped on (the door walk
+  moves them off it) and sets the arrival tile and facing chosen in the builder.
+* The game walks the player out opposite to the door's angle, so the plugin keeps the doors' angle at the player's facing + ½ turn.
+* `0x956321` is the scene the player came from; the host's arrival conversation (`NPC_Tanukichi_In`) branches on "arriving or leaving"
+  (node 23): the builder writes a welcome only on the arriving branch, and a "quiet" copy (arriving ends at once) is switched on after a
+  room change.
 
 ## What the plugin hooks by itself
 

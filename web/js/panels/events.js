@@ -35,7 +35,12 @@ export function render(root, app) {
     e.scope = e.scope || 'building'; e.mode = e.mode || 'sequence'; e.steps = e.steps || []; e.edits = e.edits || [];
     const info = await flowInfo(e.flow).catch(() => ({ nodes: [], goodbye: false }));
     const known = Object.values(nm).find((v) => v.flow === e.flow);
-    const maxSteps = info.nodes.length;
+    const maxSteps = info.slots || info.nodes.length, maxChoices = info.max_choices || 6, maxAnswer = info.max_answer || 24;
+    for (const s of e.steps) if (!s.id) { s.id = uid('m', e.steps); changed(); }
+    const stepName = (id) => { const k = e.steps.findIndex((x) => x.id === id); return k < 0 ? '?' : 'message ' + (k + 1); };
+    // where a message (or an answer) leads: '' = the message below it, 'end', or the id of a message
+    const nextSelect = (cur, i, onPick, allowBelow) => select([...(allowBelow ? [['', i + 1 < e.steps.length ? 'Go on with the message below' : 'End the conversation']] : []), ['end', 'End the conversation'],
+      ...e.steps.filter((x, k) => k !== i || !allowBelow).map((x) => [x.id, 'Go to ' + stepName(x.id)])], cur || (allowBelow ? '' : 'end'), onPick);
     const b = P.buildings.find((x) => x.id === e.building);
     const tabs = h('div', { class: 'tabs', style: { margin: '10px 0' } }, LANGS.map((l) => h('button', { class: l === st.lang ? 'on' : '', onclick: () => { st.lang = l; drawMain(); } }, l.toUpperCase())));
     const bind = (ta, get_, set_) => {
@@ -45,10 +50,31 @@ export function render(root, app) {
     };
     const textBox = (obj, rows, ph) => bind(h('textarea', { rows, placeholder: st.lang === 'en' ? ph : 'Left empty: the English text is used' }, (obj.text || {})[st.lang] || ''),
       (en) => (en ? (obj.text || {}).en : ''), (v) => { obj.text = obj.text || {}; if (v) obj.text[st.lang] = v; else delete obj.text[st.lang]; });
-    const stepCard = (s, i) => h('div', { class: 'card' }, h('div', { class: 'row', style: { marginBottom: '6px' } }, h('span', { class: 'chip' }, 'message ' + (i + 1)), h('div', { class: 'grow' }),
-      h('button', { class: 'small ghost', disabled: i === 0, onclick: () => { e.steps.splice(i - 1, 0, e.steps.splice(i, 1)[0]); changed(); drawMain(); } }, '↑'),
-      h('button', { class: 'small ghost', disabled: i === e.steps.length - 1, onclick: () => { e.steps.splice(i + 1, 0, e.steps.splice(i, 1)[0]); changed(); drawMain(); } }, '↓'),
-      h('button', { class: 'small ghost danger', onclick: () => { e.steps.splice(i, 1); changed(); drawMain(); } }, 'remove')), textBox(s, 5, 'What is said (use {0.4:} to start a new box)'));
+    const answerRow = (s, i, c, j) => {
+      const inp = h('input', { type: 'text', value: (c.text || {})[st.lang] || '', maxlength: 40, placeholder: st.lang === 'en' ? 'An answer, e.g. Sure!' : 'Left empty: the English text is used' });
+      const warn = h('span', { class: 'dim', style: { fontSize: '11px', minWidth: '34px', textAlign: 'right' } });
+      const count = () => { const n = inp.value.length; warn.textContent = n + '/' + maxAnswer; warn.style.color = n > maxAnswer ? 'var(--err, #d55)' : ''; };
+      inp.addEventListener('input', () => { c.text = c.text || {}; if (inp.value) c.text[st.lang] = inp.value; else delete c.text[st.lang]; count(); changed(); });
+      count();
+      const nx = nextSelect(c.next, i, (v) => { c.next = v; changed(); }, false); nx.style.width = '190px';
+      return h('div', { class: 'row', style: { gap: '6px', marginTop: '4px' } }, h('span', { class: 'dim' }, '▸'), h('div', { class: 'grow', style: { display: 'flex' } }, inp), warn, nx,
+        h('button', { class: 'small ghost danger', title: 'Remove this answer', onclick: () => { s.choices.splice(j, 1); if (!s.choices.length) delete s.choices; changed(); drawMain(); } }, '✕'));
+    };
+    const stepCard = (s, i) => {
+      const ch = s.choices || [];
+      return h('div', { class: 'card' }, h('div', { class: 'row', style: { marginBottom: '6px' } }, h('span', { class: 'chip' }, 'message ' + (i + 1)), h('div', { class: 'grow' }),
+        h('button', { class: 'small ghost', disabled: i === 0, onclick: () => { e.steps.splice(i - 1, 0, e.steps.splice(i, 1)[0]); changed(); drawMain(); } }, '↑'),
+        h('button', { class: 'small ghost', disabled: i === e.steps.length - 1, onclick: () => { e.steps.splice(i + 1, 0, e.steps.splice(i, 1)[0]); changed(); drawMain(); } }, '↓'),
+        h('button', { class: 'small ghost danger', onclick: () => { const gone = s.id; e.steps.splice(i, 1); for (const x of e.steps) { if (x.next === gone) delete x.next; for (const c of x.choices || []) if (c.next === gone) c.next = 'end'; } changed(); drawMain(); } }, 'remove')),
+        textBox(s, 5, 'What is said (use {0.4:} to start a new box)'),
+        ch.length ? h('div', { style: { marginTop: '8px' } }, h('div', { class: 'dim', style: { fontSize: '12px' } }, 'The player answers'), ch.map((c, j) => answerRow(s, i, c, j)),
+          ch.length < 2 ? h('div', { class: 'warn-box', style: { marginTop: '6px' } }, 'A question needs at least 2 answers.') : null) : null,
+        h('div', { class: 'row', style: { gap: '8px', marginTop: '8px' } },
+          ch.length < maxChoices ? h('button', { class: 'small', onclick: () => { s.choices = s.choices || []; s.choices.push({ text: { en: '' }, next: 'end' }); if (s.choices.length === 1) s.choices.push({ text: { en: '' }, next: 'end' }); changed(); drawMain(); } }, ch.length ? '+ Answer' : '+ Let the player answer') : null,
+          h('div', { class: 'grow' }),
+          ch.length ? null : h('span', { class: 'dim', style: { fontSize: '12px' } }, 'Then'),
+          ch.length ? null : (() => { const nx = nextSelect(s.next, i, (v) => { if (v) s.next = v; else delete s.next; changed(); }, true); nx.style.width = '220px'; return nx; })()));
+    };
     const edit = (n) => { let x = e.edits.find((y) => y.label === n.label); if (!x) { x = { label: n.label, text: {} }; e.edits.push(x); } return x; };
     const rewriteCard = (n) => {
       const x = e.edits.find((y) => y.label === n.label) || { text: {} };
@@ -71,16 +97,16 @@ export function render(root, app) {
       e.scope === 'building' && b && !b.interior ? h('div', { class: 'warn-box', style: { marginTop: '8px' } }, 'This building has no interior of its own: the conversation would also play in the real place. Give it an interior in Buildings → Inside.') : null,
       e.scope === 'script' ? h('div', { class: 'info-box', style: { marginTop: '8px' } }, 'Off until a script switches it on, e.g. ', h('code', {}, '@on_enter("my_building")\ndef hello():\n    conversation_on("' + e.id + '")')) : null,
       e.scope === 'always' ? h('div', { class: 'warn-box', style: { marginTop: '8px' } }, 'This changes the conversation everywhere in the game, all the time.') : null,
-      h('div', { class: 'grid2', style: { marginTop: '8px' } }, field('What to change', select([['sequence', 'Say these messages, then end the conversation'], ['rewrite', 'Rewrite the game’s own lines (its questions and answers stay)']], e.mode, (v) => { e.mode = v; changed(); drawMain(); }))),
+      h('div', { class: 'grid2', style: { marginTop: '8px' } }, field('What to change', select([['sequence', 'My own conversation (messages, questions and answers)'], ['rewrite', 'Rewrite the game’s own lines (its questions and answers stay)']], e.mode, (v) => { e.mode = v; changed(); drawMain(); }))),
       tabs,
       h('div', { class: 'toolbar', style: { gap: '4px', border: '1px solid var(--line)', borderRadius: '6px', marginBottom: '10px' } }, h('span', { class: 'dim' }, 'Insert'), CODES.map(([l, c]) => h('button', { class: 'small', title: c, onclick: () => { const t = st.focus; if (!t) { toast('Click in a message first', 'info'); return; } t.setRangeText(c, t.selectionStart, t.selectionEnd, 'end'); t.dispatchEvent(new Event('input')); t.focus(); } }, l))),
       e.mode === 'rewrite'
         ? h('div', { class: 'col' }, info.nodes.length ? info.nodes.map(rewriteCard) : h('div', { class: 'dim' }, 'No readable lines in this conversation.'))
         : h('div', { class: 'col' }, e.steps.map(stepCard),
-          e.steps.length < maxSteps ? h('button', { onclick: () => { e.steps.push({ text: { en: '' } }); changed(); drawMain(); } }, '+ Add a message (' + e.steps.length + '/' + maxSteps + ')') : h('div', { class: 'dim' }, 'This conversation has room for ' + maxSteps + ' messages.'),
+          e.steps.length < maxSteps ? h('button', { onclick: () => { e.steps.push({ id: uid('m', e.steps), text: { en: '' } }); changed(); drawMain(); } }, '+ Add a message') : h('div', { class: 'dim' }, 'This conversation has room for ' + maxSteps + ' messages.'),
           info.goodbye ? h('div', { class: 'card' }, h('h3', {}, 'Goodbye'), goodbye) : null));
     mount(side, h('div', { class: 'panel-title' }, 'Preview'), h('div', { class: 'dim' }, 'Click in a message to see how it looks in the game.'),
-      h('div', { class: 'info-box', style: { marginTop: '12px', fontSize: '12px' } }, 'The game decides when each conversation starts (talking to someone, a visit, a birthday…). Questions with answers (Yes / No) belong to the game’s own conversation: to keep them, use “Rewrite the game’s own lines”.'));
+      h('div', { class: 'info-box', style: { marginTop: '12px', fontSize: '12px' } }, 'The game decides when each conversation starts (talking to someone, a visit…). Give a message answers to ask the player something: each answer goes on to a message of its own, or ends the conversation.'));
     function showPreview(t) { mount(side, h('div', { class: 'panel-title' }, 'Message window'), previewBoxes(t || ' ')); }
   }
   drawLeft(); drawMain();

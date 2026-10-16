@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import struct
 import sys
 import tempfile
 import unittest
@@ -98,6 +99,28 @@ class GameTests(unittest.TestCase):
         nodes = events.message_nodes("Tanukichi")
         self.assertEqual(nodes[0], (4, "002"))
         self.assertEqual(len({l for _, l in nodes}), len(nodes))
+
+    def test_flow_rebuild_and_answers(self):
+        from acnlb import rom
+        from acnlb.features import events
+        flow, talk = "/Script/Flow/NPC_Tanukichi_In.msbf", "/Script/Talk/NPC_Tanukichi.umsbt"
+        data = rom.read(flow)
+        self.assertEqual(events.FlowFile(data).build(), data)            # untouched, byte for byte
+        f = events.FlowFile(data)
+        n0, names0 = len(f.nodes), struct.unpack_from("<H", f.nodes[5], 4)[0]
+        steps = [{"id": "q", "text": {"en": "Tour?"}, "choices": [{"text": {"en": "Yes!"}, "next": "y"}, {"text": {"en": "No."}, "next": "end"}]},
+                 {"id": "y", "text": {"en": "Follow me!"}}]
+        extra = []
+        events.build_sequence(f, "t", steps, events.text_slots(flow, talk, 4, "001"), extra, talk, None)
+        g = events.FlowFile(f.build())
+        self.assertEqual(len(g.nodes), n0 + 3)                          # two messages and the branch on the answer
+        self.assertEqual(struct.unpack_from("<H", g.nodes[0], 8)[0], n0)
+        br = g.nodes[struct.unpack_from("<H", g.nodes[n0], 8)[0]]
+        self.assertEqual((br[0], br[1]) + struct.unpack_from("<HH", br, 10), (2, 6, 3, 2))
+        self.assertEqual(g.table[-2:], [n0 + 1, 0xFFFF])
+        self.assertEqual(struct.unpack_from("<H", g.nodes[5], 4)[0], names0 + 3 * 16 + 2 * 2)      # flow names moved along
+        self.assertEqual(g.names, f.names)
+        self.assertEqual(extra[0]["text"]["en"], "Tour?{15.5:00000000}\nYes!\nNo.")
 
     def test_export_small_project(self):
         from acnlb import build, project

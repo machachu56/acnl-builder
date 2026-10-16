@@ -464,6 +464,8 @@ class Plan:
                 self.doorway[t] = r["id"]
         for t in self.door:
             self.owner[t] = main
+        self.arrive = set()            # tiles where the player arrives from another room: door tiles, as at the real entrance
+        self.link_attr = {}            # link tile -> its collision attribute (set by features.interiors)
         self.link = {}                 # tile -> link: walking onto it leaves for another room
         for k in spec.get("links") or []:
             for t in k.get("tiles", []):
@@ -515,10 +517,10 @@ class Plan:
                 t = (x, y)
                 if t in self.exit:
                     words = (0, 0, 0, 0, 0x4007)
-                elif t in self.door:
+                elif t in self.door or t in self.arrive:
                     words = (0, 0, 0, 0, 0x402B)
-                elif t in self.link:                    # an exit tile: the plugin decides where it really leads
-                    words = (0, 0, 0, 0, 0x4007)
+                elif t in self.link:                    # a door of its own (0x4008 + n): the plugin adds door n to the scene's door table
+                    words = (0, 0, 0, 0, self.link_attr.get(t, 0x4007))
                 elif not self.floor(t) or t in self.solid:
                     words = (0x6318, 0x6318, 0x6318, 0x6318, 0x400F)
                 else:
@@ -586,6 +588,7 @@ class Builder:
         sizes["_mirror"] = (16, 16)
         if S.get("links"):
             sizes["_link"] = (16, 16)
+            sizes["_door"] = (16, 32)
         for pname in S["palettes"]:
             for part, size in BED_PARTS.items():
                 sizes["bed:%s:%s" % (pname, part)] = size
@@ -702,6 +705,8 @@ class Builder:
             c.rect(R["_link"], (150, 100, 40, 255))
             c.rrect((x0 + 1, y0 + 1, x1 - 1, y1 - 1), 3, (240, 200, 90, 255))
             c.rrect((x0 + 4, y0 + 4, x1 - 4, y1 - 4), 2, (255, 236, 160, 255))
+        if "_door" in R:                      # a doorway into the dark, like the entrance
+            c.rect(R["_door"], (4, 3, 6, 255))
         for name, m in self.spec["materials"].items():
             r = R["m:" + name]
             t = m.get("type", "prop")
@@ -791,6 +796,47 @@ class Builder:
         if top:
             m.poly([(x, y1, z) for x, z in pts[::-1]], [((x - cx + r) / (2 * r), (cz + r - z) / (2 * r)) for x, z in pts[::-1]], top)
 
+    @staticmethod
+    def door_edges(plan):
+        """{(inside tile, outside tile)} of the links that look like a door: the wall next to the link tile, away from the room's floor
+        (the open front gets none: there is no wall there)"""
+        out = set()
+        floor = lambda t: plan.floor(t) and t not in plan.solid
+        for (x, y), k in plan.link.items():
+            if k.get("look") != "door":
+                continue
+            for dx, dy in ((0, -1), (-1, 0), (1, 0), (0, 1)):
+                n = (x + dx, y + dy)
+                if not floor(n):
+                    out.add(((x, y), n))
+                    break
+        return out
+
+    def door_gap(self, inside, outside, wall_h, top, region):
+        """a doorway: the wall above it (a lintel from `top` up), and the dark beyond the wall line, as in the game's houses"""
+        T, m = TILE, self.mesh
+        (x, y), (ox, oy) = inside, outside
+        dx, dy = ox - x, oy - y
+        if dy == -1:
+            a, b = ((x + 1) * T, y * T), (x * T, y * T)
+        elif dy == 1:
+            a, b = (x * T, (y + 1) * T), ((x + 1) * T, (y + 1) * T)
+        elif dx == -1:
+            a, b = (x * T, y * T), (x * T, (y + 1) * T)
+        else:
+            a, b = ((x + 1) * T, (y + 1) * T), ((x + 1) * T, y * T)
+        if wall_h > top:
+            t0 = top / wall_h
+            m.quad((a[0], top, a[1]), (b[0], top, b[1]), (b[0], wall_h, b[1]), (a[0], wall_h, a[1]), region, st=((0, t0), (1, t0), (1, 1), (0, 1)))
+        # the floor runs into the dark: a black patch beyond the wall line (nothing else is drawn there)
+        fx0, fz0 = min(a[0], b[0]), min(a[1], b[1])
+        fx1, fz1 = max(a[0], b[0]), max(a[1], b[1])
+        if dx:
+            fx0, fx1 = (fx0 - T, fx0) if dx < 0 else (fx0, fx0 + T)
+        else:
+            fz0, fz1 = (fz0 - T, fz0) if dy < 0 else (fz0, fz0 + T)
+        self.flat(fx0, fz0, fx1, fz1, "_door", y=0.2)
+
     def flat(self, x0, z0, x1, z1, region, y=0.4):
         self.mesh.quad((x0, y, z1), (x1, y, z1), (x1, y, z0), (x0, y, z0), region, normal=(0, 1, 0))
 
@@ -837,15 +883,20 @@ class Builder:
                    door_floor, normal=(0, 1, 0))
         bx0, by0, bx1, by1 = plan.bounds
         door = set(plan.door)
+        gaps = self.door_edges(plan)                            # doorways of the links that look like a door
+        DOOR_H = min(WALL_H * 0.75, 80)
+        for (inside, outside) in gaps:
+            outer = not (bx0 <= outside[0] <= bx1 and by0 <= outside[1] <= by1)
+            self.door_gap(inside, outside, WALL_H if outer else PART_H, min(DOOR_H, (WALL_H if outer else PART_H)), wall_region(plan.owner.get(inside)))
         for x in range(bx0, bx1 + 1):                           # back wall
             room = plan.owner.get((x, by0))
-            if room and (x, by0 - 1) not in door:
+            if room and (x, by0 - 1) not in door and ((x, by0), (x, by0 - 1)) not in gaps:
                 self.wall_quad(((x + 1) * T, by0 * T), (x * T, by0 * T), WALL_H, wall_region(room))
         for y in range(by0, by1 + 1):                           # side walls
             for x, a, b, beyond in ((bx0, (bx0 * T, y * T), (bx0 * T, (y + 1) * T), (bx0 - 1, y)),
                                     (bx1, ((bx1 + 1) * T, (y + 1) * T), ((bx1 + 1) * T, y * T), (bx1 + 1, y))):
                 room = plan.owner.get((x, y))
-                if room and beyond not in door:
+                if room and beyond not in door and ((x, y), beyond) not in gaps:
                     self.wall_quad(a, b, WALL_H, wall_region(room))
         tpart = PART_H / WALL_H
         for y in range(by0, by1 + 1):
@@ -857,7 +908,7 @@ class Builder:
                 for (nx, ny), a, b in (((x, y + 1), (x0, z1), (x1, z1)), ((x, y - 1), (x1, z0), (x0, z0)),
                                        ((x - 1, y), (x0, z0), (x0, z1)), ((x + 1, y), (x1, z1), (x1, z0))):
                     room = plan.owner.get((nx, ny))
-                    if room and bx0 <= nx <= bx1 and by0 <= ny <= by1 and (nx, ny) not in door:
+                    if room and bx0 <= nx <= bx1 and by0 <= ny <= by1 and (nx, ny) not in door and ((nx, ny), (x, y)) not in gaps:
                         faces.append(room)
                         self.wall_quad(a, b, PART_H, wall_region(room), tpart)
                 if faces:
@@ -877,8 +928,11 @@ class Builder:
                         m.quad((x1 - 10, y0, z1), (x1 - 10, y0, z0), (x1 - 10, y1, z0), (x1 - 10, y1, z1), sign)
                     else:
                         m.quad((x0 + 10, y0, z0), (x0 + 10, y0, z1), (x0 + 10, y1, z1), (x0 + 10, y1, z0), sign)
-        for (x, y) in plan.link:                # doormats on the link tiles
-            self.flat(x * T + 3, y * T + 3, (x + 1) * T - 3, (y + 1) * T - 3, "_link", y=0.7)
+        for (x, y), k in plan.link.items():     # doormats on the link tiles, or a doorway in the wall beside them
+            if k.get("look") == "door":
+                pass                            # (its doorway is made with the walls)
+            else:
+                self.flat(x * T + 3, y * T + 3, (x + 1) * T - 3, (y + 1) * T - 3, "_link", y=0.7)
         if plan.side == "south":
             dxs = sorted(t[0] for t in plan.door)
             gap0, gap1 = (dxs[0] * T, (dxs[-1] + 1) * T) if dxs else (0, 0)

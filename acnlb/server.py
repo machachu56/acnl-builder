@@ -331,7 +331,8 @@ def script_check(req, q):
 @route("GET", "/api/script/reference")
 def script_reference(req, q):
     from .script import docs
-    return docs.reference()
+    from .features import scripts as scfeat
+    return dict(docs.reference(), spawnable=sorted(scfeat.SPAWNABLE), talk_flow=scfeat.TALK_FLOW)
 
 
 @route("POST", "/api/script/examples")
@@ -472,7 +473,9 @@ def event_flow(req, q):
     if not talk:
         raise ApiError("no text file for this conversation")
     return {"flow": flow, "talk": talk, "goodbye": bool(named and named["goodbye"]),
-            "nodes": ev.flow_nodes(flow, talk, named and named["first"], named and named["goodbye"])}
+            "nodes": ev.flow_nodes(flow, talk, named and named["first"], named and named["goodbye"]),
+            "slots": len(ev.text_slots(flow, talk, named and named["first"], named and named["goodbye"])),
+            "max_choices": ev.MAX_CHOICES, "max_answer": ev.MAX_ANSWER}
 
 
 @route("POST", "/api/launch")

@@ -71,7 +71,7 @@ const uint32_t MAP_KIND_BASE = 0x9523e0;     /* u8 base kind per widget type (0,
 const int MAX_PAGES = 8, MAX_LINKS = 8;
 const uint32_t PROFILE_PLAYER = 0x69;        /* the player's actor; its position is at +0x14 */
 const int SCENE_ARRIVE_INDOOR = 0x2f;        /* first stack argument of a scene change that arrives through a door */
-struct Link { int x, y, to, ax, ay, yaw; };
+struct Link { int x, y, to, ax, ay, yaw, oyaw; };     /* oyaw: the way the player walks out through it */
 struct Page {
     char variant[40];             /* RomFS variant with this room's model */
     char jmp_file[48];            /* its collision grid file */
@@ -87,6 +87,7 @@ struct Building {
     char id[32];
     char model[16];               /* name the game looks the model up by */
     char variant[32];             /* RomFS variant with the building's text, on inside any of its rooms */
+    char quiet[40];               /* RomFS variant with the host's arrival conversation that does not greet: on after a room change */
     Page pages[MAX_PAGES];
     int npages;
     int slot;
@@ -135,6 +136,7 @@ void set_key(Building &b, const char *key, const char *val) {
     if (!strcmp(key, "id")) copy_str(b.id, sizeof b.id, val);
     else if (!strcmp(key, "model")) copy_str(b.model, sizeof b.model, val);
     else if (!strcmp(key, "variant")) copy_str(b.variant, sizeof b.variant, val);
+    else if (!strcmp(key, "quiet")) copy_str(b.quiet, sizeof b.quiet, val);
     else if (!strcmp(key, "slot")) b.slot = (int)v;
     else if (!strcmp(key, "alias")) b.alias = (int)v;
     else if (!strcmp(key, "icon_frame")) b.icon_frame = (int)v;
@@ -178,10 +180,10 @@ void set_page_key(Page &p, const char *key, const char *val) {
         }
         if (k == 3) { p.has_entry = true; p.entry_x = (float)v[0]; p.entry_z = (float)v[1]; p.entry_yaw = v[2]; }
     }
-    else if (!strcmp(key, "link") && p.nlinks < MAX_LINKS) {      /* link = x, y, to page, arrival x, y, yaw */
-        int v[6] = {0, 0, 0, 0, 0, 0};
+    else if (!strcmp(key, "link") && p.nlinks < MAX_LINKS) {      /* link = x, y, to page, arrival x, y, yaw[, walking-out yaw] */
+        int v[7] = {0, 0, 0, 0, 0, 0, -1};
         const char *q = val;
-        for (int k = 0; k < 6; k++) {
+        for (int k = 0; k < 7; k++) {
             char *e;
             v[k] = (int)acnl_strtol(q, &e, 0);
             if (e == q) break;
@@ -189,7 +191,7 @@ void set_page_key(Page &p, const char *key, const char *val) {
             while (is_space(*q)) q++;
             if (*q == ',') q++;
         }
-        p.links[p.nlinks++] = {v[0], v[1], v[2], v[3], v[4], v[5]};
+        p.links[p.nlinks++] = {v[0], v[1], v[2], v[3], v[4], v[5], v[6] >= 0 ? v[6] : 32768};
     }
 }
 
@@ -202,6 +204,30 @@ void set_outfit_key(Outfit &o, const char *key, const char *val) {
     if (!strcmp(key, "villager")) copy_str(o.villager, sizeof o.villager, val);
     else if (!strcmp(key, "id")) copy_str(o.id, sizeof o.id, val);
     else if (!strcmp(key, "variant")) copy_str(o.variant, sizeof o.variant, val);
+}
+
+/* [characters]: characters added by the mod. spawn = <profile>, <model code>: the profile is created with the game's own model-code
+   argument (as the game does when Isabelle comes out to meet the player: AcNpcSpSecretaryOut with "sza"), so it loads its own model.
+   talk = <profile>, <flow>: talking to that character runs this conversation (a flow of the game, rewritten by the mod) */
+struct CharDef { uint32_t profile; char code[4]; char flow[48]; };
+const int MAX_CHARS = 16;
+CharDef g_char[MAX_CHARS];
+int g_nchars = 0;
+CharDef *char_def(uint32_t profile, bool make) {
+    for (int i = 0; i < g_nchars; i++) if (g_char[i].profile == profile) return &g_char[i];
+    if (!make || g_nchars >= MAX_CHARS) return nullptr;
+    memset(&g_char[g_nchars], 0, sizeof g_char[0]);
+    g_char[g_nchars].profile = profile;
+    return &g_char[g_nchars++];
+}
+void set_char_key(const char *key, const char *val) {
+    char *e;
+    uint32_t prof = (uint32_t)acnl_strtol(val, &e, 0);
+    while (*e == ',' || is_space(*e)) e++;
+    CharDef *c = char_def(prof, true);
+    if (!c) return;
+    if (!strcmp(key, "spawn")) { memset(c->code, 0, 4); for (int i = 0; i < 3 && e[i]; i++) c->code[i] = e[i]; }
+    else if (!strcmp(key, "talk")) copy_str(c->flow, sizeof c->flow, e);
 }
 
 /* [probe]: log what the game does, to find what to hook (see docs/HOOKS.md). hook = <address>, <label>; actors = 1 */
@@ -223,6 +249,8 @@ void set_probe_key(const char *key, const char *val) {
     }
 }
 
+void set_trace_key(const char *key, const char *val);
+
 /* acnlb.cfg: "[building]" starts a section, "key = value" lines, '#' comments */
 void load_config() {
     static char text[32768];
@@ -233,7 +261,7 @@ void load_config() {
     Building *cur = nullptr;
     Page *page = nullptr;
     Outfit *outfit = nullptr;
-    bool inprobe = false;
+    bool inprobe = false, inchars = false, intrace = false;
     for (char *line = text; *line;) {
         char *end = line;
         while (*end && *end != '\n') end++;
@@ -244,13 +272,15 @@ void load_config() {
         if (*line == '[') {
             page = nullptr;
             outfit = nullptr;
-            inprobe = false;
+            inprobe = inchars = intrace = false;
             if (!memcmp(line, "[probe]", 7)) { cur = nullptr; inprobe = true; }
+            else if (!memcmp(line, "[characters]", 12)) { cur = nullptr; inchars = true; }
+            else if (!memcmp(line, "[trace]", 7)) { cur = nullptr; intrace = true; }
             else if (!memcmp(line, "[outfit]", 8)) { cur = nullptr; if (g_noutfits < MAX_OUTFITS) outfit = &g_outfit[g_noutfits++]; }
             else if (!memcmp(line, "[building]", 10)) { cur = g_nb < MAX_MODS ? &g_b[g_nb++] : nullptr; if (cur) init_building(*cur); }
             else if (!memcmp(line, "[page]", 6) && cur && cur->npages < MAX_PAGES) page = &cur->pages[cur->npages++];
             else cur = nullptr;                                    /* a section this plugin does not read (e.g. [outfit]) */
-        } else if (cur || outfit || inprobe) {
+        } else if (cur || outfit || inprobe || inchars || intrace) {
             char *eq = line;
             while (*eq && *eq != '=') eq++;
             if (*eq == '=') {
@@ -261,7 +291,9 @@ void load_config() {
                 while (is_space(*val)) val++;
                 char *ve = val + strlen(val);
                 while (ve > val && is_space(ve[-1])) *--ve = 0;
-                if (inprobe) set_probe_key(line, val); else if (outfit) set_outfit_key(*outfit, line, val); else if (page) set_page_key(*page, line, val); else set_key(*cur, line, val);
+                if (intrace) set_trace_key(line, val);
+                else if (inchars) set_char_key(line, val);
+                else if (inprobe) set_probe_key(line, val); else if (outfit) set_outfit_key(*outfit, line, val); else if (page) set_page_key(*page, line, val); else set_key(*cur, line, val);
             }
         }
         line = next;
@@ -369,12 +401,36 @@ void push(Saved &s, uint32_t v) { if (s.n < DEPTH) s.v[s.n] = v; s.n++; }
 uint32_t pop(Saved &s) { if (s.n <= 0) return 0; s.n--; return s.n < DEPTH ? s.v[s.n] : 0; }
 
 /* the room's collision grid: the building's own while inside it */
+/* where the game thinks the player came from: a room reached by a link must look as if the player came in through the building's
+   door from the town, or the place is not set up (seen in game: the player could not leave the room, and nobody would talk; the
+   leaving test 0x5c4d4c failed). These are the values that differed between the two rooms, kept when the player walks in from the
+   town and written again whenever a room is reached through a link. */
+struct CameFrom { uint32_t addr; uint32_t size; };
+const CameFrom CAME_FROM[] = {{0x956321, 1}, {0x94d4b4, 1}, {0x94d4a5, 1}, {0x94d43c, 4}, {0x94d440, 4}, {0x94d484, 4}};
+const int N_CAME_FROM = sizeof CAME_FROM / sizeof CAME_FROM[0];
+uint32_t g_came_from[N_CAME_FROM];
+bool g_have_came_from = false, g_by_link = false;
+int g_came_from_frames = 0;
+uint32_t rd_n(uint32_t a, uint32_t n) { return n == 1 ? acnl_rd8(a) : acnl_rd32(a); }
+void wr_n(uint32_t a, uint32_t n, uint32_t v) { if (n == 1) acnl_wr8(a, (uint8_t)v); else acnl_wr32(a, v); }
+void came_from_keep() { for (int i = 0; i < N_CAME_FROM; i++) g_came_from[i] = rd_n(CAME_FROM[i].addr, CAME_FROM[i].size); g_have_came_from = true; }
+void came_from_put() {
+    if (!g_have_came_from) return;
+    for (int i = 0; i < N_CAME_FROM; i++) wr_n(CAME_FROM[i].addr, CAME_FROM[i].size, g_came_from[i]);
+}
 Saved s_jmp;
+int g_jmp_logged_page = -1;
 int hook_jmp_block_pre(void *) { push(s_jmp, acnl_reg(1)); return ACNL_CONTINUE; }
 void hook_jmp_block_post(void *) {
     uint32_t index = pop(s_jmp);
-    if (g_cur >= 0 && g_page < g_b[g_cur].npages && g_b[g_cur].pages[g_page].jmp && index == JMP_INDOOR_BASE + (uint32_t)g_b[g_cur].room && acnl_reg(0))
+    if (g_cur >= 0 && g_page < g_b[g_cur].npages && g_b[g_cur].pages[g_page].jmp && index == JMP_INDOOR_BASE + (uint32_t)g_b[g_cur].room && acnl_reg(0)) {
+        if (g_jmp_logged_page != g_page) {
+            acnl_log("builder: room %d: the game asked for its collision grid (%08x), given the room's own (%08x)", g_page, (unsigned)acnl_reg(0), (unsigned)g_b[g_cur].pages[g_page].jmp);
+            g_jmp_logged_page = g_page;
+            if (g_by_link) acnl_log("builder: room %d reached by a link", g_page);
+        }
         acnl_set_reg(0, g_b[g_cur].pages[g_page].jmp);
+    }
 }
 
 /* the player's actor, remembered when the game creates it: its position tells which link tile it stands on */
@@ -471,6 +527,76 @@ void hook_probe_actor_post(void *) {
         if (acnl_read(obj, w, sizeof w) == 0)
             acnl_log("probe: actor-words %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x", (unsigned)w[0], (unsigned)w[1], (unsigned)w[2], (unsigned)w[3], (unsigned)w[4], (unsigned)w[5], (unsigned)w[6], (unsigned)w[7], (unsigned)w[8], (unsigned)w[9], (unsigned)w[10], (unsigned)w[11], (unsigned)w[12], (unsigned)w[13], (unsigned)w[14], (unsigned)w[15]);
     }
+}
+
+/* ---- tracing the player's way out: [trace] hook = <address>, <label> lines (written by the builder while this is being found out)
+   log each call (arguments, caller, result) while the player stands on a link tile, a few per function and per room */
+struct Trace { uint32_t addr; char label[24]; int calls; };
+const int MAX_TRACES = 160;
+Trace g_trace_fn[MAX_TRACES];
+int g_ntrace = 0;
+bool g_on_link = false;
+int g_last_link = -1, g_last_link_page = -1;   /* the link tile the player last stepped on: the door walk takes them off it before the scene changes */
+Saved s_trace[MAX_TRACES];
+void set_trace_key(const char *key, const char *val) {
+    if (strcmp(key, "hook") || g_ntrace >= MAX_TRACES) return;
+    char *e;
+    Trace &t = g_trace_fn[g_ntrace];
+    t.addr = (uint32_t)acnl_strtol(val, &e, 0);
+    while (*e == ',' || is_space(*e)) e++;
+    copy_str(t.label, sizeof t.label, e);
+    g_ntrace++;
+}
+int hook_trace_pre(void *user) {
+    int i = (int)(intptr_t)user;
+    Trace &t = g_trace_fn[i];
+    /* labels starting with '@' are traced anywhere in the building (talking), the others while on a link tile (leaving) */
+    bool on = (t.label[0] == '@' ? g_cur >= 0 : g_on_link) && t.calls < 12;
+    push(s_trace[i], on ? 1 : 0);
+    if (on) {
+        t.calls++;
+        acnl_log("trace: %s(%08x, %08x, %08x, %08x) from %08x", t.label, (unsigned)acnl_reg(0), (unsigned)acnl_reg(1), (unsigned)acnl_reg(2),
+                 (unsigned)acnl_reg(3), (unsigned)acnl_return_address());
+    }
+    return ACNL_CONTINUE;
+}
+void hook_trace_post(void *user) {
+    int i = (int)(intptr_t)user;
+    if (pop(s_trace[i])) acnl_log("trace: %s -> %08x", g_trace_fn[i].label, (unsigned)acnl_reg(0));
+}
+void trace_reset() { for (int i = 0; i < g_ntrace; i++) g_trace_fn[i].calls = 0; }
+
+/* the game's globals (.data and .bss) when the player first stands on a link tile of room 0, compared with the first time on one of
+   another room: what differs is what the game knows differently about the player there (only while [trace] is on) */
+const uint32_t GLOB_START = 0x944000, GLOB_SIZE = 0x4C000;
+uint32_t g_glob = 0;           /* the copy, in guest memory (the plugin's own is too small) */
+int g_glob_state = 0;          /* 0 nothing yet, 1 room 0 kept, 2 compared */
+void glob_snapshot(int page) {
+    if (!g_ntrace || g_glob_state == 2) return;
+    if (g_glob_state == 0) {
+        if (page != 0) return;
+        static uint8_t chunk[0x1000];
+        if (!g_glob) g_glob = acnl_alloc(GLOB_SIZE, 4);
+        if (!g_glob) { g_glob_state = 2; acnl_log("trace: no memory for the globals"); return; }
+        for (uint32_t o = 0; o < GLOB_SIZE; o += 0x1000) if (acnl_read(GLOB_START + o, chunk, 0x1000) == 0) acnl_write(g_glob + o, chunk, 0x1000);
+        g_glob_state = 1;
+        acnl_log("trace: globals kept (room 0, on a link tile)");
+        return;
+    }
+    if (page == 0) return;
+    g_glob_state = 2;
+    static uint8_t now[0x1000], was[0x1000];
+    int shown = 0;
+    for (uint32_t o = 0; o < GLOB_SIZE && shown < 400; o += 0x1000) {
+        if (acnl_read(GLOB_START + o, now, 0x1000) != 0 || acnl_read(g_glob + o, was, 0x1000) != 0) continue;
+        for (uint32_t k = 0; k < 0x1000 && shown < 400; k += 4) {
+            uint32_t a, b;
+            memcpy(&a, was + k, 4);
+            memcpy(&b, now + k, 4);
+            if (a != b) { acnl_log("trace: global %08x room0 %08x room%d %08x", (unsigned)(GLOB_START + o + k), (unsigned)a, page, (unsigned)b); shown++; }
+        }
+    }
+    acnl_log("trace: %d global words differ (shown up to 400)", shown);
 }
 
 /* ---- scripts (acnlb.script: compiled by acnlb/script/compiler.py, run by script_vm.h) ---- */
@@ -581,12 +707,17 @@ int hook_script_actor_pre(void *) {
     return ACNL_CONTINUE;
 }
 
+void put_actor(uint32_t obj, float x, float z);
+void pin_add(uint32_t obj, float x, float z);
+/* the last actor place_actor() moved: a spawned character gets its place set after its creation, so the spawn's post hook moves it again */
+struct Placed { uint32_t obj; float x, z; } g_placed;
 void hook_script_actor_post(void *) {
     uint32_t v = pop(s_script_pos), obj = acnl_reg(0);
     if (!(v & 0x10000) || obj < 0x100000) return;
     float x = ((v >> 8) & 0xFF) * (float)TILE + TILE / 2.0f, z = (v & 0xFF) * (float)TILE + TILE / 2.0f;
-    uint32_t base[2] = {0x14, 0x20};                 /* the actor's position, and the copy the game keeps beside it */
-    for (int i = 0; i < 2; i++) { acnl_write(obj + base[i], &x, 4); acnl_write(obj + base[i] + 8, &z, 4); }
+    put_actor(obj, x, z);
+    g_placed = {obj, x, z};
+    pin_add(obj, x, z);
 }
 
 int hook_script_call_pre(void *user) {
@@ -606,8 +737,35 @@ const uint32_t FN_SPAWN = 0x51ef80;
    tile in it, and the stack copies changed to match. */
 const uint32_t PROFILE_TABLE = 0x952FB0;
 uint32_t g_param[MAX_ADDS];                 /* guest copies of the parameter block */
+uint32_t g_info[MAX_ADDS];                  /* guest info + place + angle of a character spawned by model code */
+const uint32_t NEW_ACTOR_POS = 0x94cfd8;    /* float *pos, u16 *angle: where the next actor is created */
+uint32_t g_create_pos_saved[2];
 AddReq g_adds_run[MAX_ADDS];
+/* where a character stands comes from the place's table of spots (Nook's Homes: 0x958ea8, one 0x20-byte record per counter
+   character, x, y, z at +4), and r3 of the spawn points 0x14 bytes past the x of the spawning character's record. A character added
+   next to it takes that same record (seen in game: the added Isabelle stood on Tom Nook's spot, whatever block or position was given
+   to her). So for an added character the record itself holds the chosen tile while the player is in that room; the next scene change
+   puts the game's values back. The character it is added with is not shown in that room, so nobody else stands there. */
+struct SpotPatch { uint32_t addr; float orig[3]; };
+SpotPatch g_spot[MAX_ADDS];
+int g_nspot = 0;
+void restore_spots() {
+    for (int i = 0; i < g_nspot; i++) acnl_write(g_spot[i].addr, g_spot[i].orig, 12);
+    g_nspot = 0;
+}
+void patch_spot(uint32_t r3, float x, float z) {
+    uint32_t a = r3 - 0x14;
+    if (r3 < 0x100014 || acnl_rd32(a + 4) != 0x42000000u) return;          /* y = 32.0: it is a spot record */
+    for (int i = 0; i < g_nspot; i++) if (g_spot[i].addr == a) { acnl_write(a, &x, 4); acnl_write(a + 8, &z, 4); return; }
+    if (g_nspot >= MAX_ADDS) return;
+    g_spot[g_nspot].addr = a;
+    acnl_read(a, g_spot[g_nspot].orig, 12);
+    g_nspot++;
+    acnl_write(a, &x, 4);
+    acnl_write(a + 8, &z, 4);
+}
 int hook_spawn_pre(void *) {
+    g_placed.obj = 0;
     if (!g_scripts) return ACNL_CONTINUE;
     uint32_t desc = acnl_reg(1), r3 = acnl_reg(3);
     if (desc < 0x100000 || r3 < 0x100020) return ACNL_CONTINUE;
@@ -617,6 +775,29 @@ int hook_spawn_pre(void *) {
     script_fire(sv::K_SPAWN, nullptr, nullptr, prof);
     for (int k = 0; k < g_nadds; k++) {
         uint32_t rec = PROFILE_TABLE + 12 * g_adds[k].profile;
+        CharDef *cd = char_def(g_adds[k].profile, false);
+        if (cd && cd->code[0] && acnl_rd16(rec) == g_adds[k].profile) {
+            /* the game's way: info = {u8 1, u8 0, .., u32 model code at +4}; the place and the angle of a new actor are read through the
+               pointers at 0x94cfd8 / 0x94cfdc (set by the game's create-with-position function, 0x57aa34), put back once it exists */
+            if (!g_info[k]) g_info[k] = acnl_alloc(0x40, 4);
+            if (!g_info[k]) continue;
+            uint8_t info[0x20] = {0};
+            info[0] = 1;
+            memcpy(info + 4, cd->code, 4);
+            float pos[3] = {g_adds[k].tx * (float)TILE + TILE / 2.0f, 32.0f, g_adds[k].tz * (float)TILE + TILE / 2.0f};
+            uint16_t ang[4] = {0, 0, 0, 0};                         /* facing south, towards the camera */
+            acnl_write(g_info[k], info, sizeof info);
+            acnl_write(g_info[k] + 0x20, pos, 12);
+            acnl_write(g_info[k] + 0x30, ang, 8);
+            g_create_pos_saved[0] = acnl_rd32(NEW_ACTOR_POS);
+            g_create_pos_saved[1] = acnl_rd32(NEW_ACTOR_POS + 4);
+            acnl_wr32(NEW_ACTOR_POS, g_info[k] + 0x20);
+            acnl_wr32(NEW_ACTOR_POS + 4, g_info[k] + 0x30);
+            g_adds_run[k] = g_adds[k];
+            acnl_log("script: spawning actor %u (model %s) next to %u (tile %d,%d)", (unsigned)g_adds[k].profile, cd->code, (unsigned)prof, g_adds[k].tx, g_adds[k].tz);
+            acnl_call_again_patched(100 + (uint32_t)k, acnl_reg(0), rec, acnl_reg(2), g_info[k], prof, g_adds[k].profile, r3, g_info[k]);
+            continue;
+        }
         if (acnl_rd16(rec) != g_adds[k].profile) { acnl_log("script: no profile record for actor %u: not spawned", (unsigned)g_adds[k].profile); continue; }
         if (!g_param[k]) g_param[k] = acnl_alloc(0x80, 4);
         uint8_t buf[0x40];
@@ -626,15 +807,199 @@ int hook_spawn_pre(void *) {
         memcpy(buf + 0x14, &z, 4);
         acnl_write(g_param[k], buf, sizeof buf);
         g_adds_run[k] = g_adds[k];
+        patch_spot(r3, x, z);
         acnl_log("script: spawning actor %u next to %u (tile %d,%d)", (unsigned)g_adds[k].profile, (unsigned)prof, g_adds[k].tx, g_adds[k].tz);
         acnl_call_again_patched(100 + (uint32_t)k, acnl_reg(0), rec, acnl_reg(2), g_param[k] + 0x20, prof, g_adds[k].profile, r3, g_param[k] + 0x20);
     }
     return ACNL_CONTINUE;
 }
+/* the actor's place: x, y, z at +0x14 and the copy the game keeps beside it at +0x20 */
+void put_actor(uint32_t obj, float x, float z) {
+    const uint32_t base[2] = {0x14, 0x20};
+    for (int i = 0; i < 2; i++) { acnl_write(obj + base[i], &x, 4); acnl_write(obj + base[i] + 8, &z, 4); }
+}
+int g_dumped_genuine = 0;
+void hook_spawn_post(void *) {
+    uint32_t obj = acnl_reg(0);
+    if (obj >= 0x100000 && g_dumped_genuine < 2 && acnl_rd16(obj + 0xc) == 492) { g_dumped_genuine++; probe_dump("genuine", obj, 492); }
+    if (g_placed.obj && obj == g_placed.obj) put_actor(obj, g_placed.x, g_placed.z);
+    g_placed.obj = 0;
+}
+/* characters held on a tile (added ones, and the ones place_actor() moved): the game puts a character on its spot after creating it
+   (a genuine Tom Nook is created at 272,0,368 and then stands at 288,32,400), so the place is written again every frame, from the
+   player's update (AcPlayer method 9, which also starts the player leaving a room). Every change the game makes is logged (the first
+   few), and so are the link tiles the player walks on. */
+const uint32_t FN_PLAYER_UPDATE = 0x68c0ec;
+const int MAX_PINS = 8;
+struct Pin { uint32_t obj, vtable; float x, z; int moved; } g_pin[MAX_PINS];
+uint32_t g_talker[MAX_ADDS];                 /* the characters added in this room (their conversations are the mod's) */
+int g_npin = 0, g_frames = 0;
+void pin_add(uint32_t obj, float x, float z) {
+    for (int i = 0; i < g_npin; i++) if (g_pin[i].obj == obj) { g_pin[i].x = x; g_pin[i].z = z; return; }
+    if (g_npin < MAX_PINS && obj >= 0x100000) g_pin[g_npin++] = {obj, acnl_rd32(obj), x, z, 0};
+}
+int g_last_tile = -1, g_tile_logs = 0;
+void trace_reset();
+void glob_snapshot(int page);
+void pin_reset() { trace_reset(); g_on_link = false; memset(g_talker, 0, sizeof g_talker); g_npin = 0; g_last_tile = -1; g_jmp_logged_page = -1; }
+void pin_tick();
+/* ---- doors between rooms. An exit tile of type 0x4007 + n is door n of the scene: the player's own update looks it up in the scene's door
+   table (*(0x956344 + scene * 4) + 0xc -> {36-byte entries, count}; an entry: u8 destination scene, its place at +8, angles at +0x14) and
+   walks out through it. Door 0 of Nook's Homes is the front door, which the shop handles (Tom Nook sees the customer out, then the scene
+   changes). Link tiles are doors 1.. of their room: the plugin adds them to the table, leading back into the same scene at the link's
+   arrival tile, so moving between rooms is a plain door, as between the rooms of a house (no goodbye, no leaving the building). */
+const uint32_t SCENE_DOORS = 0x956344;
+const int DOOR_SIZE = 36, MAX_DOORS = 8;
+uint32_t g_door_mem[MAX_PAGES];            /* per room: {entries, count} + entries */
+uint32_t g_door_data = 0, g_door_orig = 0, g_door_mine = 0;
+int g_door_page = -1;
+void doors_restore() {
+    if (g_door_data && g_door_orig && acnl_rd32(g_door_data + 0xc) == g_door_mine) acnl_wr32(g_door_data + 0xc, g_door_orig);
+    g_door_data = g_door_orig = g_door_mine = 0;
+    g_door_page = -1;
+}
+void doors_tick() {
+    if (g_cur < 0 || g_page >= g_b[g_cur].npages || g_b[g_cur].scene < 0) return;
+    Building &b = g_b[g_cur];
+    Page &pg = b.pages[g_page];
+    if (!pg.nlinks) return;
+    uint32_t dd = acnl_rd32(SCENE_DOORS + (uint32_t)b.scene * 4);
+    if (dd < 0x100000) return;
+    uint32_t ex = acnl_rd32(dd + 0xc);
+    if (g_door_page == g_page && dd == g_door_data && ex == g_door_mine) return;     /* in place */
+    if (ex == g_door_mine && dd == g_door_data) ex = g_door_orig;                    /* another room of the same building */
+    if (ex < 0x100000) return;
+    uint32_t entries = acnl_rd32(ex), count = acnl_rd32(ex + 4);
+    if (entries < 0x100000 || count == 0 || count > 16) return;
+    /* the room's doors: one per different destination, numbered from 1 in the order of its link lines (as the builder numbers them) */
+    Link doors[MAX_DOORS];
+    int nd = 0;
+    for (int l = 0; l < pg.nlinks && nd < MAX_DOORS - 1; l++) {
+        const Link &k = pg.links[l];
+        bool seen = false;
+        for (int d = 0; d < nd; d++) if (doors[d].to == k.to && doors[d].ax == k.ax && doors[d].ay == k.ay && doors[d].yaw == k.yaw) seen = true;
+        if (!seen) doors[nd++] = k;
+    }
+    uint32_t n = (uint32_t)nd + 1 > count ? (uint32_t)nd + 1 : count;
+    if (!g_door_mem[g_page]) g_door_mem[g_page] = acnl_alloc(8 + DOOR_SIZE * MAX_DOORS * 2, 4);
+    uint32_t mem = g_door_mem[g_page];
+    if (!mem) return;
+    uint8_t e[DOOR_SIZE];
+    for (uint32_t i = 0; i < n; i++) {
+        acnl_read(entries + (i < count ? i : 0) * DOOR_SIZE, e, DOOR_SIZE);
+        if (i >= 1 && (int)i <= nd) {
+            const Link &k = doors[i - 1];
+            float pos[3] = {k.ax * TILE + TILE / 2.0f, 32.0f, k.ay * TILE + TILE / 2.0f};
+            uint16_t ang[3] = {0, (uint16_t)k.oyaw, 0};
+            e[0] = e[1] = e[2] = e[3] = (uint8_t)b.scene;
+            e[4] = 0;
+            memcpy(e + 8, pos, 12);
+            memcpy(e + 0x14, ang, 6);
+            /* the kind of door (+0x20): 4 is a front door from outside (walking into a shop: the shopkeeper greets, the shop music plays),
+               3 a door between two rooms (the side rooms of houses, the museum...), 1 and 2 stairs; the rooms of a building use 3 */
+            e[0x20] = 3;
+        }
+        acnl_write(mem + 8 + i * DOOR_SIZE, e, DOOR_SIZE);
+    }
+    acnl_wr32(mem, mem + 8);
+    acnl_wr32(mem + 4, n);
+    if (dd != g_door_data || g_door_orig == 0) { g_door_data = dd; g_door_orig = ex; }
+    g_door_mine = mem;
+    g_door_page = g_page;
+    acnl_wr32(dd + 0xc, mem);
+    uint8_t e0[DOOR_SIZE];
+    acnl_read(entries, e0, DOOR_SIZE);
+    acnl_log("builder: room %d: %d door(s) to other rooms added to the scene's %u door(s) (front door: to scene %u, kind %u)", g_page, nd, (unsigned)count, e0[0], e0[0x20]);
+}
+/* the door walk follows the player's facing: the game walks the player opposite to a door's angle (seen in game), so the doors of the
+   room take the player's own angle + half a turn, refreshed every frame */
+const uint32_t PLAYER_YAW = 0x34;          /* u16: the player's facing (0 south, 0x4000 east, 0x8000 north, 0xC000 west) */
+void doors_face_player() {
+    if (!g_door_mine || !g_player || acnl_rd32(g_door_data + 0xc) != g_door_mine) return;
+    uint32_t n = acnl_rd32(g_door_mine + 4);
+    uint16_t yaw = (uint16_t)(acnl_rd16(g_player + PLAYER_YAW) + 0x8000);
+    for (uint32_t i = 1; i < n && i < (uint32_t)MAX_DOORS * 2; i++) acnl_wr16(g_door_mine + 8 + i * DOOR_SIZE + 0x16, yaw);
+}
+void came_from_put();
+void came_from_keep();
+/* the game's talk controller: *(0x95ceac) + 0x18 -> controller, its state at +0x20 (logged when it changes, while tracing) */
+uint32_t g_tc_last[3] = {1, 1, 1};
+int g_tc_logs = 0;
+void talk_watch() {
+    if (!g_ntrace || g_tc_logs >= 120) return;
+    uint32_t x = acnl_rd32(0x95ceac), ctl = x >= 0x100000 ? acnl_rd32(x + 0x18) : 0, st = ctl >= 0x100000 ? acnl_rd8(ctl + 0x20) : 0xFF;
+    if (x == g_tc_last[0] && ctl == g_tc_last[1] && st == g_tc_last[2]) return;
+    g_tc_last[0] = x; g_tc_last[1] = ctl; g_tc_last[2] = st;
+    g_tc_logs++;
+    uint32_t w[16] = {0}, v[8] = {0};
+    if (ctl >= 0x100000) acnl_read(ctl, w, sizeof w);
+    if (x >= 0x100000) acnl_read(x, v, sizeof v);
+    acnl_log("trace: talk room %d frame %d: system %08x [%08x %08x %08x %08x %08x %08x %08x %08x] controller %08x state %u [%08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x]",
+             g_page, g_frames, (unsigned)x, (unsigned)v[0], (unsigned)v[1], (unsigned)v[2], (unsigned)v[3], (unsigned)v[4], (unsigned)v[5], (unsigned)v[6], (unsigned)v[7],
+             (unsigned)ctl, (unsigned)st, (unsigned)w[0], (unsigned)w[1], (unsigned)w[2], (unsigned)w[3], (unsigned)w[4], (unsigned)w[5], (unsigned)w[6], (unsigned)w[7],
+             (unsigned)w[8], (unsigned)w[9], (unsigned)w[10], (unsigned)w[11]);
+}
+void hook_player_update_post(void *) {
+    g_frames++;
+    doors_tick();
+    doors_face_player();
+    talk_watch();
+    if (g_came_from_frames > 0) { g_came_from_frames--; came_from_put(); }
+    else if (g_cur >= 0 && !g_by_link && g_page == 0 && !g_on_link) came_from_keep();      /* walked in from the town: these are the right values */
+    pin_tick();
+}
+void pin_tick() {
+    for (int i = 0; i < g_npin; i++) {
+        Pin &p = g_pin[i];
+        if (acnl_rd32(p.obj) != p.vtable) continue;                         /* gone */
+        float pos[3];
+        if (acnl_read(p.obj + 0x14, pos, 12) != 0) continue;
+        float dx = pos[0] - p.x, dz = pos[2] - p.z;
+        if (dx * dx + dz * dz > 1.0f) {
+            if (p.moved++ < 6) acnl_log("builder: the game moved actor %08x (profile %u) to %.0f,%.0f,%.0f (frame %d): put back on %.0f,%.0f",
+                                        (unsigned)p.obj, (unsigned)acnl_rd16(p.obj + 0xc), pos[0], pos[1], pos[2], g_frames, p.x, p.z);
+            put_actor(p.obj, p.x, p.z);
+        }
+    }
+    if (g_cur >= 0 && g_player && g_page < g_b[g_cur].npages && g_b[g_cur].pages[g_page].nlinks) {
+        float pos[3];
+        if (acnl_read(g_player + 0x14, pos, 12) != 0) return;
+        int tx = (int)(pos[0] / TILE), ty = (int)(pos[2] / TILE), t = ty * 16 + tx;
+        if (t == g_last_tile || tx < 0 || ty < 0 || tx > 15 || ty > 15) return;
+        g_last_tile = t;
+        const Page &pg = g_b[g_cur].pages[g_page];
+        g_on_link = false;
+        for (int l = 0; l < pg.nlinks; l++) if (pg.links[l].x == tx && pg.links[l].y == ty) { g_on_link = true; g_last_link = l; g_last_link_page = g_page; }
+        if (g_on_link) glob_snapshot(g_page);
+        for (int l = 0; l < pg.nlinks; l++)
+            if (pg.links[l].x == tx && pg.links[l].y == ty) {
+                uint16_t attr = pg.jmp ? acnl_rd16(pg.jmp + (uint32_t)t * 10 + 8) : 0;
+                if (g_tile_logs++ < 60) {
+                    uint32_t st = acnl_rd8(g_player + 0x1a9);
+                    uint32_t cat = st < 0xeb ? (acnl_rd8(0x841c20 + st * 10 + 5) >> 4) : 99;
+                    acnl_log("builder: room %d: the player is on link tile %d,%d (collision attribute %04x), facing %04x; player state %#x (kind %u)",
+                             g_page, tx, ty, attr, acnl_rd16(g_player + 0x34), st, cat);
+                }
+            }
+    }
+}
 extern "C" ACNL_EXPORT("acnl_mod_call_done") void acnl_mod_call_done(uint32_t id, uint32_t result) {
     if (id < 100 || id >= 100 + MAX_ADDS) return;
-    acnl_log("script: the extra actor %u was created: object %08x", (unsigned)g_adds_run[id - 100].profile, (unsigned)result);
-    probe_dump("added", result, g_adds_run[id - 100].profile);         /* (few lines, only when a character is added)  */
+    const AddReq &a = g_adds_run[id - 100];
+    CharDef *cd = char_def(a.profile, false);
+    if (cd && cd->code[0]) { acnl_wr32(NEW_ACTOR_POS, g_create_pos_saved[0]); acnl_wr32(NEW_ACTOR_POS + 4, g_create_pos_saved[1]); }
+    if (result >= 0x100000 && acnl_rd32(result) < 0x100000) { acnl_log("script: the extra actor %u is not a real object (%08x)", (unsigned)a.profile, (unsigned)result); return; }
+    if (result >= 0x100000) g_talker[(id - 100) % MAX_ADDS] = result;
+    if (result < 0x100000) { acnl_log("script: the extra actor %u was not created", (unsigned)a.profile); return; }
+    /* a character does not take its place from the parameter block (seen in game: the added Isabelle stood on the spot of the character
+       she was spawned with, block or not), so the tile is written into the new actor once the spawn is done */
+    float before[3] = {0, 0, 0};
+    acnl_read(result + 0x14, before, 12);
+    put_actor(result, a.tx * (float)TILE + TILE / 2.0f, a.tz * (float)TILE + TILE / 2.0f);
+    pin_add(result, a.tx * (float)TILE + TILE / 2.0f, a.tz * (float)TILE + TILE / 2.0f);
+    probe_dump("added", result, a.profile);
+    acnl_log("script: the extra actor %u was created: object %08x, moved from %.0f,%.0f to tile %d,%d", (unsigned)a.profile, (unsigned)result,
+             before[0], before[2], a.tx, a.tz);
 }
 
 void load_scripts() {
@@ -709,8 +1074,59 @@ int hook_map_icon_kind_pre(void *) {
    BUILDER_TRACE=1 logs every scene change (arguments: scene, position, angles, stack kind). */
 const uint32_t FN_GOTO_SCENE = 0x5b4bd0;   /* bool goto(obj, u8 scene, float pos[3], u16 angle[3], f32, stack: kind, ?) */
 const uint32_t SCENE_STATE = 0x956320;     /* +2 current scene, +3 next */
+/* conversations: every flow the game loads goes through script::IFlowRecept method 2 (0x5da2e0: recept r1, r2 the flow's name, which
+   it keeps at r1 + 0x100 and formats into "Script/Flow/%s.msbf" in the buffer at r1 + 0x104). It is logged, and an added character (its
+   talk receptor is part of the actor) gets the conversation the mod gives it: the name is replaced by that flow's (whose rewritten copy
+   the mod's variant serves; the rewritten flow starts with the mod's messages from every entry). */
+const uint32_t FN_FLOW_LOAD = 0x5da2e0;
+char g_entry_name[48];
+uint32_t g_entry_guest = 0;
+void read_cstr(uint32_t a, char *out, int cap) {
+    int i = 0;
+    if (a >= 0x100000) for (; i < cap - 1; i++) { uint8_t ch = acnl_rd8(a + (uint32_t)i); if (!ch || ch < 32 || ch > 126) break; out[i] = (char)ch; }
+    out[i] = 0;
+}
+int hook_flow_load_pre(void *) {
+    uint32_t recept = acnl_reg(1), r3 = acnl_reg(3);
+    char name[64];
+    read_cstr(acnl_reg(2), name, sizeof name);
+    int who = -1;
+    for (int k = 0; k < MAX_ADDS; k++)
+        if (g_talker[k] && recept >= g_talker[k] && recept < g_talker[k] + 0x4000) who = k;
+    acnl_log("builder: conversation %s (r3 %08x) for %08x%s, from %08x", name, (unsigned)r3, (unsigned)recept,
+             who >= 0 ? " (an added character)" : "", (unsigned)acnl_return_address());
+    if (who < 0) return ACNL_CONTINUE;
+    CharDef *cd = char_def(acnl_rd16(g_talker[who] + 0xc), false);
+    if (!cd || !cd->flow[0] || !strcmp(cd->flow, name)) return ACNL_CONTINUE;
+    if (!g_entry_guest) g_entry_guest = acnl_alloc(sizeof g_entry_name, 4);
+    if (!g_entry_guest) return ACNL_CONTINUE;
+    acnl_write(g_entry_guest, cd->flow, strlen(cd->flow) + 1);
+    acnl_set_reg(2, g_entry_guest);
+    acnl_log("builder: the added character talks with %s instead", cd->flow);
+    return ACNL_CONTINUE;
+}
+void restore_spots();
+void pin_reset();
+void doors_restore();
+uint32_t g_entry_args[6];
+bool g_has_entry_args = false;
 int hook_goto_pre(void *) {
+    restore_spots();                           /* a spot moved for an added character belongs to the room being left */
+    pin_reset();
     uint32_t cur = acnl_rd8(SCENE_STATE + 2), want = acnl_reg(1) & 0xFF, sp = acnl_reg(13);
+    if (g_nb && (cur == 0 || want == 0 || (g_cur >= 0 && cur == (uint32_t)g_b[g_cur].scene))) {      /* what a door of the game asks for */
+        float pos[3] = {0, 0, 0};
+        uint16_t ang[3] = {0, 0, 0};
+        acnl_read(acnl_reg(2), pos, 12);
+        acnl_read(acnl_reg(3), ang, 6);
+        uint32_t w[6];
+        acnl_read(sp, w, sizeof w);
+        acnl_log("builder: scene change %u -> %u, arrival %.0f,%.0f,%.0f angle %u, stack %x %x %x %x %x %x", cur, want, pos[0], pos[1], pos[2], ang[1],
+                 (unsigned)w[0], (unsigned)w[1], (unsigned)w[2], (unsigned)w[3], (unsigned)w[4], (unsigned)w[5]);
+        /* the arguments of walking in from the town through the building's door: a move between rooms uses the same ones, so the place
+           is set up as after a real entrance (greeting, the host seeing the player out, talking) */
+        if (cur == 0 && g_cur >= 0 && want == (uint32_t)g_b[g_cur].scene) { memcpy(g_entry_args, w, sizeof w); g_has_entry_args = true; }
+    }
     if (g_debug_enter && g_nb && g_b[0].scene >= 0 && cur == 0 && want != 0 && want != (uint32_t)g_b[0].scene) {
         /* BUILDER_DEBUG_ENTER=1: the first door the player uses leads into the first building (for testing) */
         float np[3] = {256.0f, 32.0f, 464.0f};
@@ -734,23 +1150,41 @@ int hook_goto_pre(void *) {
         g_has_override = false;
     }
     bool linked = false;
-    if (g_cur >= 0 && g_page < g_b[g_cur].npages && cur == (uint32_t)g_b[g_cur].scene && want == 0 && g_player) {
+    /* leaving a room of the building (to the town, or, after an arrival from another room, to that same scene): a link tile under the
+       player (or touching them: the game may start leaving a step before the tile) takes them to the linked room instead */
+    if (g_cur >= 0 && g_page < g_b[g_cur].npages && cur == (uint32_t)g_b[g_cur].scene && g_player) {
         Building &b = g_b[g_cur];
         Page &pg = b.pages[g_page];
         float pos[3];
         if (acnl_read(g_player + 0x14, pos, 12) == 0) {
             int tx = (int)(pos[0] / TILE), ty = (int)(pos[2] / TILE);
+            acnl_log("builder: %s: leaving room %d (scene %u -> %u) from tile %d,%d", b.id, g_page, cur, want, tx, ty);
+            int best = -1;
+            float bestd = 1e9f;
+            if (want == cur && g_last_link_page == g_page && g_last_link >= 0 && g_last_link < pg.nlinks) { best = g_last_link; bestd = 0; }   /* a door of ours */
+            else for (int l = 0; l < pg.nlinks; l++) {
+                const Link &k = pg.links[l];
+                if (k.to < 0 || k.to >= b.npages) continue;
+                float dx = pos[0] - (k.x * TILE + TILE / 2.0f), dz = pos[2] - (k.y * TILE + TILE / 2.0f);
+                float ax = dx < 0 ? -dx : dx, az = dz < 0 ? -dz : dz, d = ax > az ? ax : az;      /* distance from the tile's middle */
+                if (d < bestd) { bestd = d; best = l; }
+            }
             for (int l = 0; l < pg.nlinks; l++) {
                 const Link &k = pg.links[l];
-                if (k.x != tx || k.y != ty || k.to < 0 || k.to >= b.npages) continue;
+                if (l != best || bestd > TILE * 0.9f) continue;
+                g_last_link = g_last_link_page = -1;
                 float np[3] = {k.ax * TILE + TILE / 2.0f, 32.0f, k.ay * TILE + TILE / 2.0f};
                 uint16_t na[3] = {0, (uint16_t)k.yaw, 0};
                 acnl_write(acnl_reg(2), np, 12);
                 acnl_write(acnl_reg(3), na, 6);
-                acnl_wr32(sp, SCENE_ARRIVE_INDOOR);
-                acnl_wr32(sp + 4, 0);
-                acnl_set_reg(1, (uint32_t)b.scene);
+                if (want != (uint32_t)b.scene) {                /* (the front door: leaving the building, turned into a room change) */
+                    if (g_has_entry_args) acnl_write(sp, g_entry_args, sizeof g_entry_args);
+                    else { acnl_wr32(sp, SCENE_ARRIVE_INDOOR); acnl_wr32(sp + 4, 0); }
+                    acnl_set_reg(1, (uint32_t)b.scene);
+                }
                 select_page(b, k.to);
+                g_by_link = true;
+                if (b.quiet[0]) acnl_set_romfs_variant(b.quiet, 1);
                 acnl_log("builder: %s: room %d -> room %d (tile %d,%d)", b.id, (int)(&pg - b.pages), k.to, tx, ty);
                 linked = true;
                 if (g_scripts) {
@@ -762,6 +1196,7 @@ int hook_goto_pre(void *) {
             }
         }
     }
+    if (!linked && g_cur >= 0 && cur == (uint32_t)g_b[g_cur].scene && want != cur) doors_restore();       /* out of the building */
     if (g_scripts && !linked && g_cur >= 0 && cur == (uint32_t)g_b[g_cur].scene && want == 0) {      /* @on_leave */
         memset(&g_sc, 0, sizeof g_sc);
         script_fire(sv::K_LEAVE, g_b[g_cur].id, g_page < g_b[g_cur].npages ? g_b[g_cur].pages[g_page].scene_id : "", 0);
@@ -791,10 +1226,12 @@ void hook_building_scene_post(void *) {
     if (Building *nb = new_id_building(bld))
         if (nb->scene >= 0) acnl_set_reg(0, (uint32_t)nb->scene);
     for (int i = 0; i < g_nb; i++) {
+        if (g_b[i].quiet[0]) acnl_set_romfs_variant(g_b[i].quiet, 0);        /* walking in from the town: the host greets */
         if (g_b[i].variant[0]) acnl_set_romfs_variant(g_b[i].variant, i == g_cur);
         for (int k = 0; k < g_b[i].npages; k++) acnl_set_romfs_variant(g_b[i].pages[k].variant, i == g_cur && k == 0);
     }
     g_page = 0;
+    g_by_link = false;
     g_has_override = false;
     if (g_scripts && g_cur >= 0) {                  /* @on_enter */
         memset(&g_sc, 0, sizeof g_sc);
@@ -900,10 +1337,15 @@ extern "C" int acnl_mod_init(void) {
         if (actors && acnl_hook(FN_ACTOR_CREATE, hook_script_actor_pre, hook_script_actor_post, nullptr) != 0) return -1;
         bool spawns = false;
         for (int i = 0; i < g_prog.nhandlers; i++) if (g_prog.h[i].kind == sv::K_SPAWN) spawns = true;
-        if (spawns && acnl_hook(FN_SPAWN, hook_spawn_pre, nullptr, nullptr) != 0) { acnl_log("script: cannot hook the spawn function: @on_spawn is off"); }
+        if ((spawns || actors) && acnl_hook(FN_SPAWN, hook_spawn_pre, hook_spawn_post, nullptr) != 0) { acnl_log("script: cannot hook the spawn function: @on_spawn is off"); }
     }
     /* after the scripts' hook: a script may turn a furniture request into a character before the exhibits are hidden */
     if (any_hide && acnl_hook(FN_ACTOR_CREATE, hook_actor_create_pre, nullptr, nullptr) != 0) return -1;
     if (any_jmp && acnl_hook(FN_JMP_BLOCK, hook_jmp_block_pre, hook_jmp_block_post, nullptr) != 0) return -1;
+    if (g_scripts && g_ntrace && acnl_hook(FN_FLOW_LOAD, hook_flow_load_pre, nullptr, nullptr) != 0) acnl_log("builder: cannot hook the conversation loader");
+    if ((g_scripts || any_links) && acnl_hook(FN_PLAYER_UPDATE, nullptr, hook_player_update_post, nullptr) != 0) acnl_log("builder: cannot hook the player's update");
+    /* the tracing hooks last: the SDK has 128 hook slots, the mod's own come first */
+    for (int i = 0; i < g_ntrace; i++)
+        if (acnl_hook(g_trace_fn[i].addr, hook_trace_pre, hook_trace_post, (void *)(intptr_t)i) != 0) acnl_log("trace: cannot hook %#x", (unsigned)g_trace_fn[i].addr);
     return 0;
 }

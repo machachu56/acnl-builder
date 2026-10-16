@@ -27,6 +27,12 @@ def config_text(b):
             if pg.get("entry"):
                 out.append("entry = %s" % pg["entry"])
             out += ["link = %s" % l for l in pg.get("links", [])]
+    if b.cfg.get("characters"):
+        out += ["", "[characters]"] + ["%s = %d, %s" % (k, prof, v) for k, prof, v in b.cfg["characters"]]
+    import os
+    tr = [t for t in (os.environ.get("ACNLB_TRACE") or "").split(",") if t.strip()]
+    if tr:
+        out += ["", "[trace]"] + ["hook = %s" % t.replace(":", ", ") for t in tr]
     for o in b.cfg.get("outfits", []):
         out += ["", "[outfit]", "villager = %s" % o["villager"], "id = %s" % o["id"], "model = %s" % o["model"], "variant = %s" % o["variant"]]
     return "\n".join(out) + "\n"

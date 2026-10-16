@@ -168,11 +168,19 @@ export function render(root, app) {
     for (const k of solid) { const [x, y] = k.split(',').map(Number); g.beginPath(); for (let i = 0; i < S36; i += 8) { g.moveTo(x * S36 + i, y * S36); g.lineTo(x * S36, y * S36 + i); } g.stroke(); }
     for (const l of sc.links || []) for (const t of l.tiles || []) {
       const dest = P.interiors.find((x) => x.id === l.to), sel = st.linkSel === l.id;
-      g.fillStyle = 'rgba(190,120,255,.55)'; g.fillRect(t[0] * S36 + 2, t[1] * S36 + 2, S36 - 4, S36 - 4); g.strokeStyle = sel ? '#fff' : '#c9a0ff'; g.lineWidth = sel ? 3 : 2; g.strokeRect(t[0] * S36 + 3, t[1] * S36 + 3, S36 - 6, S36 - 6);
+      g.fillStyle = l.look === 'door' ? 'rgba(30,20,30,.75)' : 'rgba(190,120,255,.55)'; g.fillRect(t[0] * S36 + 2, t[1] * S36 + 2, S36 - 4, S36 - 4); g.strokeStyle = sel ? '#fff' : '#c9a0ff'; g.lineWidth = sel ? 3 : 2; g.strokeRect(t[0] * S36 + 3, t[1] * S36 + 3, S36 - 6, S36 - 6);
       g.fillStyle = '#fff'; g.font = 'bold 15px system-ui'; g.fillText('⇄', t[0] * S36 + 9, t[1] * S36 + 24); label(g, '→ ' + (dest ? dest.title || dest.id : '?'), t[0] * S36 + 2, t[1] * S36 - 1, sel);
     }
     // items
     for (const it of sc.items) drawItem(g, it, st.multi.has(it.id), sc);
+    // where the player appears when coming from another room (green, draggable; click to turn): the arrow is the way they face
+    for (const a of arrivals(sc)) {
+      const cx = a.l.arrive[0] * S36 + S36 / 2, cy = a.l.arrive[1] * S36 + S36 / 2, on = st.arriveSel === a.l;
+      const ang = { north: -Math.PI / 2, south: Math.PI / 2, east: 0, west: Math.PI }[a.l.face || 'south'];
+      g.fillStyle = 'rgba(80,200,120,.9)'; g.beginPath(); g.arc(cx, cy, 12, 0, 7); g.fill(); g.lineWidth = on ? 3 : 2; g.strokeStyle = on ? '#fff' : '#1d5a33'; g.stroke();
+      g.save(); g.translate(cx, cy); g.rotate(ang); g.fillStyle = '#fff'; g.beginPath(); g.moveTo(10, 0); g.lineTo(-5, -7); g.lineTo(-5, 7); g.closePath(); g.fill(); g.restore();
+      label(g, 'from ' + (a.from.title || a.from.id), cx - 24, cy - 16, on);
+    }
     // characters: where the game puts its own three (grey), and the ones you placed (purple, draggable)
     if (P.buildings.some((b) => reach({ id: b.interior }).some((x) => x.id === sc.id)) || P.interiors.some((T) => (T.cast || []).length && reach(T).some((x) => x.id === sc.id))) {
       for (const [n, [tx, ty]] of Object.entries(VANILLA)) { g.setLineDash([3, 3]); g.strokeStyle = 'rgba(200,200,210,.55)'; g.strokeRect(tx * S36 + 8, ty * S36 + 8, S36 - 16, S36 - 16); g.setLineDash([]); label(g, n + ' (game)', tx * S36 - 2, ty * S36 + 6); }
@@ -251,6 +259,9 @@ export function render(root, app) {
       changed(); drawAll(); preview(); return;
     }
     if (st.tool === 'select') {
+      const am = arrivals(sc).find((a) => Math.hypot(w[0] - (a.l.arrive[0] * T + T / 2), w[1] - (a.l.arrive[1] * T + T / 2)) < 14);
+      if (am) { setSel([]); st.arriveSel = am.l; st.drag = { kind: 'arrive', l: am.l, start: t, moved: false }; drawPlan(); return; }
+      st.arriveSel = null;
       const cm = castMarks(sc).find((m) => Math.hypot(w[0] - (m.x * T + T / 2), w[1] - (m.y * T + T / 2)) < 16);
       if (cm) { setSel([]); st.castSel = cm.c; st.drag = { kind: 'cast', c: cm.c }; drawInspector(); drawLists(); drawPlan(); return; }
       st.castSel = null;
@@ -306,6 +317,7 @@ export function render(root, app) {
       }
       drawPlan();
     } else if (d && d.kind === 'cast') { d.c.x = t[0]; d.c.y = t[1]; drawPlan(); }
+    else if (d && d.kind === 'arrive') { if (t[0] !== d.start[0] || t[1] !== d.start[1]) d.moved = true; if (d.moved && arrivalOk(sc, t)) { d.l.arrive = [t[0], t[1]]; drawPlan(); } }
     else if (d && d.kind === 'move') {
       const dx = w[0] - d.start[0], dz = w[1] - d.start[1];
       const sn = d.snap ? 8 : 1, ax = Math.round(dx / sn) * sn, az = Math.round(dz / sn) * sn;
@@ -336,6 +348,10 @@ export function render(root, app) {
       if (!d.dragged && !d.add) setSel([], d.room ? d.room.id : null);                // a plain click on empty floor: the room, or nothing
       drawAll(); return;
     } else if (d.kind === 'cast') { changed(); drawLists(); drawPlan(); return; }
+    else if (d.kind === 'arrive') {            // a click turns the arrival a quarter, a drag moves it
+      if (!d.moved) { const order = ['north', 'east', 'south', 'west']; d.l.face = order[(order.indexOf(d.l.face || 'south') + 1) % 4]; }
+      changed(); drawLists(); drawPlan(); return;
+    }
     else if (d.kind === 'move' || d.kind === 'moveRoom') { if (d.kind === 'moveRoom' || d.any) changed(); else { drawAll(); return; } }
     drawAll(); preview();
   });
@@ -435,7 +451,9 @@ export function render(root, app) {
         h('div', { class: 'row', style: { marginBottom: '6px' } }, h('b', {}, 'Way ' + l.id), h('span', { class: 'dim' }, (l.tiles || []).length + ' tile(s): ' + (l.tiles || []).map((t) => t.join(',')).join('  ')), h('div', { class: 'grow' }),
           h('button', { class: 'small ghost danger', onclick: () => { sc.links.splice(sc.links.indexOf(l), 1); if (st.linkSel === l.id) st.linkSel = null; changed(); drawAll(); preview(); } }, 'delete')),
         field('Leads to', select(others.map((o) => [o.id, o.title || o.id]), l.to, (v) => { l.to = v; st.lastDest = v; const nd = P.interiors.find((x) => x.id === v); if (nd && !arrivalOk(nd, l.arrive || [-1, -1])) l.arrive = freeTiles(nd, 8, 10)[0] || l.arrive; changed(); drawLists(); drawPlan(); })),
+        field('Looks like', select([['mat', 'A doormat on the floor'], ['door', 'A door in the wall (a dark doorway, like the entrance)']], l.look || 'mat', (v) => { if (v === 'mat') delete l.look; else l.look = v; changed(); drawPlan(); preview(); }), 'Put door tiles along a wall: the doorway is drawn in the wall beside them.'),
         h('div', { class: 'grid2', style: { marginTop: '6px' } }, field('The player arrives facing', select(FACES, l.face || 'south', (v) => { l.face = v; changed(); })), field('Arrival tile', textInput((l.arrive || []).join(', '), (v) => { const p = v.split(/[ ,]+/).map(Number); if (p.length === 2 && p.every((n) => n >= 0 && n < GRID)) { l.arrive = p; changed(); drawMini(); } }))),
+        h('div', { class: 'dim', style: { fontSize: '12px', marginTop: '4px' } }, 'The player walks out through the doormat the way they are facing. In the other room they appear on the arrival tile: the green marker on that room’s plan (drag it, click it to turn).'),
         h('div', { class: 'dim', style: { fontSize: '12px', margin: '6px 0 4px' } }, ok ? 'Click the other room’s floor to choose where the player appears (green = fine).' : 'The arrival tile must be free floor (not a door, link or furniture): click another tile.'), mini,
         dest && !hasWayBack(sc, dest) ? h('div', { class: 'row', style: { marginTop: '8px' } }, h('span', { class: 'dim', style: { fontSize: '12px' } }, 'One-way: ' + (dest.title || dest.id) + ' has no door back.'),
           h('button', { class: 'small', onclick: () => { if (makeWayBack(sc, l, dest)) { changed(); drawAll(); preview(); } else toast('No free tile for a door back', 'error'); } }, 'Add the door back')) : null,
@@ -696,7 +714,10 @@ export function render(root, app) {
       h('div', { class: 'dim', style: { fontSize: '12px', marginTop: '4px' } }, ent.side === 'south' ? 'The original: the door in the front wall, the player walks in facing north.' : 'The two rows or columns along that edge are kept free for the doorway. The player appears there facing into the room.'));
   }
 
-  // ---- characters: who stands where the game puts Tom Nook, Honma and Takumi (it can only swap them, not place new ones)
+  // links of other rooms that lead into `sc`: their arrival tile and facing are edited on this room's plan
+  const arrivals = (sc) => { const out = []; for (const S of P.interiors) for (const l of S.links || []) if (l.to === sc.id && l.arrive) out.push({ l, from: S }); return out; };
+
+  // ---- characters: people added to a room, or standing where the game puts Tom Nook, Honma and Takumi
   const STAFF = ['Tom Nook', 'Honma', 'Takumi'];
   const VANILLA = { 'Tom Nook': [9, 12], Honma: [5, 7], Takumi: [7, 12] };          // where the game puts them (seen in the game)
   const reach = (T) => { const seen = new Set([T.id]), todo = [T.id], out = []; while (todo.length) { const id = todo.shift(), x = P.interiors.find((i) => i.id === id); if (!x) continue; out.push(x); for (const l of x.links || []) if (!seen.has(l.to)) { seen.add(l.to); todo.push(l.to); } } return out; };
@@ -707,28 +728,29 @@ export function render(root, app) {
   function castCard(sc) {
     const owner = castOwner(sc); owner.cast = owner.cast || [];
     const people = () => Object.keys({ ...(st.knownActors || {}), ...P.actors }).filter((n) => !['Player', 'Rain', 'Snow', 'Sakura', 'Paper'].includes(n));
-    if (!st.knownActors) get('/api/script/reference').then((r) => { st.knownActors = r.actors || {}; if (st.tab === 'add') drawLists(); });
+    if (!st.knownActors) get('/api/script/reference').then((r) => { st.knownActors = r.actors || {}; st.spawnable = r.spawnable || []; st.talkFlow = r.talk_flow || {}; if (st.tab === 'add') drawLists(); });
     const used = P.buildings.filter((b) => b.interior === owner.id);
     const rooms = reach(owner);
     const row = (c) => h('div', { class: 'card', style: { padding: '8px', display: 'grid', gap: '6px' } },
-      h('div', { class: 'grid2' }, field('Use the place of', select([['add', 'ADD them (nobody is replaced)'], ['spare', 'a spare place (a furniture piece becomes them; characters do not work here)'], ...STAFF.map((n) => [n, n + ' (replaces them)'])], c.replace, (v) => { c.replace = v; changed(); drawPlan(); })), field('Put there', select([['', '(nobody: remove them)'], ...people().map((n) => n === 'Isabelle' ? ['Isabelle', 'Isabelle — town hall only: crashes the game elsewhere'] : n)], c.with || '', (v) => { c.with = v; changed(); drawPlan(); }))),
+      h('div', { class: 'grid2' }, field('Who', select([['', c.replace === 'add' ? '(choose)' : '(nobody: remove them)'], ...(c.replace === 'add' ? (st.spawnable || []) : people())], c.with || '', (v) => { c.with = v; changed(); drawPlan(); drawLists(); })),
+        field('How', select([['add', 'Add them'], ...(c.replace === 'spare' ? [['spare', 'In a spare place']] : []), ...STAFF.map((n) => [n, 'Instead of ' + n])], c.replace, (v) => { c.replace = v; changed(); drawPlan(); drawLists(); }))),
       field('In which room', select([['', 'every room of the building'], ...rooms.map((r) => [r.id, r.title || r.id])], c.room || '', (v) => { c.room = v; changed(); drawPlan(); }), 'Each room is a separate load of the place, so someone can be in one room and not in another.'),
       h('div', { class: 'row', style: { gap: '8px' } }, h('span', { class: 'dim', style: { fontSize: '12px' } }, c.x != null ? 'Stands on tile ' + c.x + ', ' + c.y : 'Stands where the game puts them'), h('div', { class: 'grow' }),
         h('button', { class: 'small', onclick: () => { if (c.room && c.room !== sc.id) { st.sid = c.room; drawAll(); preview.now(); } if (c.x == null) { const d = VANILLA[c.replace] || [8, 8]; c.x = d[0]; c.y = d[1]; changed(); drawPlan(); } toast('Drag the purple marker on the plan', 'info', 2500); } }, 'Place on the plan'),
         c.x != null ? h('button', { class: 'small ghost', onclick: () => { delete c.x; delete c.y; changed(); drawPlan(); drawLists(); } }, 'Game’s spot') : null),
       h('div', { class: 'grid2' }, field('From (empty = always)', h('input', { type: 'time', value: c.from || '', onchange: (e) => { c.from = e.target.value; changed(); } })),
         field('Until', h('input', { type: 'time', value: c.to || '', onchange: (e) => { c.to = e.target.value; changed(); } }))),
-      checkbox(c.away, (v) => { c.away = v; changed(); }, 'Not at their usual place meanwhile (hidden elsewhere in the game, e.g. the town hall) during the hours above'),
-      c.with === 'Isabelle' ? checkbox((P.unsafe_ok || []).includes(454), (v) => { P.unsafe_ok = (P.unsafe_ok || []).filter((x) => x !== 454); if (v) P.unsafe_ok.push(454); changed(); }, 'Isabelle crashed the game in a spare place (her model is loaded too late there): try her in Tom Nook’s, Honma’s or Takumi’s place, anyway') : null,
+      c.from && c.to ? checkbox(c.away, (v) => { c.away = v; changed(); }, 'Away from their usual place during these hours') : null,
+      c.with ? field('When you talk to them', select([['', '(their usual lines)'], ...P.events.map((e) => [e.id, e.id + ((e.steps || []).length ? ' — ' + (e.steps || []).length + ' message' + ((e.steps || []).length > 1 ? 's' : '') : '')])], c.talk || '', (v) => { c.talk = v; const e = P.events.find((x) => x.id === v); if (e) { e.scope = 'script'; const f = c.replace === 'add' && (st.talkFlow || {})[c.with]; if (f && e.flow !== f) { e.flow = f; e.mode = 'sequence'; e.edits = []; toast(e.id + ' is now written on ' + c.with + '’s own conversation', 'info', 3000); } } changed(); drawLists(); }),
+        'A conversation from the Events tab. It plays only while they are here; everywhere else they keep their usual lines.') : null,
       h('div', { class: 'grid2' }, field('Wears here (a villager with outfits)', select([['', '(their normal clothes)'], ...P.villagers.filter((v) => (v.outfits || []).length).map((v) => [v.id, v.id])], c.villager || '', (v) => { c.villager = v; c.outfit = ((P.villagers.find((x) => x.id === v) || {}).outfits || [{}])[0].id || ''; changed(); drawLists(); })),
         field('Outfit', select([['', '—'], ...(((P.villagers.find((x) => x.id === c.villager) || {}).outfits) || []).map((o) => [o.id, o.name || o.id])], c.outfit || '', (v) => { c.outfit = v; changed(); }), 'Elsewhere (e.g. the town hall) they keep their normal clothes.')),
       h('button', { class: 'small ghost danger', onclick: () => { owner.cast.splice(owner.cast.indexOf(c), 1); changed(); drawLists(); drawPlan(); } }, 'Remove'));
     return h('div', { class: 'card' }, h('h3', {}, 'Characters'),
-      h('div', { class: 'dim', style: { fontSize: '12px', marginBottom: '6px' } }, '“ADD them” spawns the character in addition to the game’s own, at the same moment the game spawns its counter characters (so their model loads), and puts them on the tile you choose. Characters show as purple markers on the plan: drag them. Grey tags show where the game puts Tom Nook, Honma and Takumi, who stay unless you replace or remove them here. Needs the updated runtime (call_again).'),
+      h('div', { class: 'dim', style: { fontSize: '12px', marginBottom: '6px' } }, 'Add people to a room, or put someone in the place of the room’s own staff. Drag the purple markers on the plan to place them.'),
       used.length ? null : h('div', { class: 'warn-box', style: { marginBottom: '6px' } }, 'No building uses this interior yet, so nothing happens: give a building this interior in the Buildings tab.'),
       owner.cast.map(row),
-      h('button', { onclick: () => { owner.cast.push({ replace: 'add', with: 'Isabelle', room: owner === sc ? '' : sc.id, x: 8, y: 8, from: '', to: '', away: false }); changed(); drawLists(); drawPlan(); } }, '+ Add a character'),
-      h('div', { class: 'dim', style: { fontSize: '11px', marginTop: '6px' } }, 'Untested in the game: the swap is done when the building loads (it is compiled into the mod as a script when you export; see it in the Scripts tab).'));
+      h('button', { onclick: () => { owner.cast.push({ replace: 'add', with: '', room: owner === sc ? '' : sc.id, x: 8, y: 8, from: '', to: '', away: false }); changed(); drawLists(); drawPlan(); } }, '+ Add a character'));
   }
 
   // ---- your own 3D models (Blender exports)

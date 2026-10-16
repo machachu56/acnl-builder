@@ -55,6 +55,8 @@ def compile_outfits(b):
                 unused.append("%s/%s" % (v["id"], o["id"]))
     if any("wear(" in (sc.get("code") or "") and sc.get("enabled", True) for sc in b.proj.get("scripts", [])):
         unused = []                                   # a script dresses them
+    worn = {"%s/%s" % (c.get("villager"), c.get("outfit")) for sc in b.proj.get("interiors", []) for c in sc.get("cast") or [] if c.get("with")}
+    unused = [u for u in unused if u not in worn]     # a character of the Interiors tab wears them
     if unused:
         b.warn("outfits %s are in the mod but nothing wears them yet: only the default outfit shows until a script swaps one in" % ", ".join(unused))
 

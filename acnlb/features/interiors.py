@@ -78,6 +78,22 @@ def check_links(pages, built):
                                  % (sc["id"], k.get("id"), a[0], a[1], k["to"]))
 
 
+def out_yaw(spec, plan, tile):
+    """the way the player walks out through a link tile: away from the room's main area next to it (the game's door walk)"""
+    main = spec.get("main") or "main"
+    x, y = tile
+    inside = lambda t: plan.owner.get(t) == main and t not in plan.link
+    # (step out, name): the room's floor behind the tile, and no floor of it ahead
+    sides = (((0, -1), "north"), ((0, 1), "south"), ((1, 0), "east"), ((-1, 0), "west"))
+    for (dx, dy), away in sides:
+        if inside((x - dx, y - dy)) and (plan.owner.get((x + dx, y + dy)) != main or (x + dx, y + dy) in plan.solid):
+            return YAW[away]
+    for (dx, dy), away in sides:
+        if inside((x - dx, y - dy)):
+            return YAW[away]
+    return YAW["north"]
+
+
 def compile(b):
     for bld in b.proj["buildings"]:
         if not bld.get("interior"):
@@ -93,26 +109,53 @@ def compile(b):
                 raise ValueError("interior %s: %s" % (spec["id"], e))
         check_links(pages, built)
         index = {s["id"]: i for i, s in enumerate(pages)}
+        for spec in pages:                    # the player arrives from another room on a door tile, as through the real entrance
+            for lk in spec.get("links") or []:
+                built[index[lk["to"]]].plan.arrive.add(tuple(lk["arrive"]))
         cfg_pages = []
         for k, (spec, bt) in enumerate(zip(pages, built)):
+            if k > 0:
+                # only the entrance room has a way out to the town: in the other rooms the doorway of the plan is closed in the collision
+                # (a door/exit next to a link tile kept the game from ever leaving by the link, seen in game), the links are the way out
+                if not spec.get("links"):
+                    raise ValueError("room %s has no link back: the player could not leave it (add a door to another room in Interiors)" % spec["id"])
+                bt.plan.solid |= set(bt.plan.door) | set(bt.plan.exit)
+                bt.plan.door, bt.plan.exit = [], []
+            links, doors = [], []
+            for lk in spec.get("links") or []:
+                ax, ay = lk["arrive"]
+                yaw = YAW.get(lk.get("face", "north"), 32768)
+                door = (index[lk["to"]], ax, ay, yaw)
+                if door not in doors:
+                    doors.append(door)
+                for (x, y) in lk.get("tiles", []):
+                    links.append("%d, %d, %d, %d, %d, %d, %d" % (x, y, index[lk["to"]], ax, ay, yaw, out_yaw(spec, bt.plan, (x, y))))
+                    # door n of the room (the game's exit types 0x4007 + n; 0 is the front door): the plugin adds it to the scene's door table
+                    bt.plan.link_attr[(x, y)] = 0x4007 + doors.index(door) + 1
+            if len(doors) > 5:
+                raise ValueError("interior %s: at most 5 different ways out to other rooms (has %d)" % (spec["id"], len(doors)))
+            if len(links) > 8:
+                raise ValueError("interior %s: at most 8 link tiles per room (has %d)" % (spec["id"], len(links)))
             room, jmp = interior.room_files(rom.read(interior.ROOM), bt)
             var = page_variant(bld, k)
             b.put(interior.ROOM, room, var)
             name = "idr_%s_p%d.jmp" % (bld["id"], k)
             b.add(name, jmp)
-            links = []
-            for lk in spec.get("links") or []:
-                ax, ay = lk["arrive"]
-                for (x, y) in lk.get("tiles", []):
-                    links.append("%d, %d, %d, %d, %d, %d" % (x, y, index[lk["to"]], ax, ay, YAW.get(lk.get("face", "north"), 32768)))
-            if len(links) > 8:
-                raise ValueError("interior %s: at most 8 link tiles per room (has %d)" % (spec["id"], len(links)))
             page = {"variant": var, "jmp": name, "links": links, "id": spec["id"]}
             if k == 0 and bt.plan.spawn:                  # an entrance that is not on the south edge: say where the player appears
                 sx, sz, yaw = bt.plan.spawn
                 page["entry"] = "%d, %d, %d" % (sx, sz, yaw)
             cfg_pages.append(page)
             b.note("room %s: %d vertices, %d triangles" % (spec["id"], len(bt.mesh.verts), len(bt.mesh.tris) // 3))
+        quiet = None
+        if len(pages) > 1:
+            # arriving from another room is not walking in: the host does not greet again (the plugin switches this variant on then)
+            from . import events as evmod
+            host = evmod.FLOWS["Tanukichi"]
+            quiet = "a_quiet_" + bld["id"]
+            b.put(host["flow"], evmod.quiet_flow(rom.read(host["flow"]), host["first"]), quiet)
         for entry in b.cfg["buildings"]:
             if entry["id"] == bld["id"]:
                 entry["pages"] = cfg_pages
+                if quiet:
+                    entry["quiet"] = quiet

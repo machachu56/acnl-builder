@@ -18,6 +18,7 @@ MAX_LINE = 34               # characters per line of a message window
 MAX_ROWS = 3
 
 CODE = re.compile(r"\{\d+\.\d+:[0-9a-f]*\}")
+CHOICES = re.compile(r"\{15\.\d+:[0-9a-f]*\}")
 
 
 def plain_len(line):
@@ -29,6 +30,7 @@ def plain_len(line):
 def check(text):
     """problems of a text: list of strings (empty = fine)"""
     out = []
+    text = CHOICES.split(text, 1)[0]                 # the answers of a question are a menu of their own, not lines of the window
     for n, box in enumerate(text.split("{0.4:}"), 1):
         rows = box.split("\n")
         if len(rows) > MAX_ROWS:
