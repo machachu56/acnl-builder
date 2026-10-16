@@ -37,7 +37,8 @@ export function render(root, app) {
     const known = Object.values(nm).find((v) => v.flow === e.flow);
     const maxSteps = info.slots || info.nodes.length, maxChoices = info.max_choices || 6, maxAnswer = info.max_answer || 24;
     for (const s of e.steps) if (!s.id) { s.id = uid('m', e.steps); changed(); }
-    const stepName = (id) => { const k = e.steps.findIndex((x) => x.id === id); return k < 0 ? '?' : 'message ' + (k + 1); };
+    const kindOf = (x) => ('charge' in x ? 'charge' : 'has_bells' in x ? 'check' : x.action ? 'action' : 'message');
+    const stepName = (id) => { const k = e.steps.findIndex((x) => x.id === id); if (k < 0) return '?'; const kd = kindOf(e.steps[k]); return (kd === 'charge' ? 'step ' + (k + 1) + ' (charge)' : kd === 'check' ? 'step ' + (k + 1) + ' (Bells check)' : kd === 'action' ? 'step ' + (k + 1) + ' (action)' : 'message ' + (k + 1)); };
     // where a message (or an answer) leads: '' = the message below it, 'end', or the id of a message
     const nextSelect = (cur, i, onPick, allowBelow) => select([...(allowBelow ? [['', i + 1 < e.steps.length ? 'Go on with the message below' : 'End the conversation']] : []), ['end', 'End the conversation'],
       ...e.steps.filter((x, k) => k !== i || !allowBelow).map((x) => [x.id, 'Go to ' + stepName(x.id)])], cur || (allowBelow ? '' : 'end'), onPick);
@@ -61,7 +62,31 @@ export function render(root, app) {
       return h('div', { class: 'row', style: { gap: '6px', marginTop: '4px' } }, h('span', { class: 'dim' }, '▸'), h('div', { class: 'grow', style: { display: 'flex' } }, inp), warn, nx,
         h('button', { class: 'small ghost danger', title: 'Remove this answer', onclick: () => { s.choices.splice(j, 1); if (!s.choices.length) delete s.choices; changed(); drawMain(); } }, '✕'));
     };
+    // steps that are not messages: charging Bells, checking the player has enough, a raw game action
+    const moveBtns = (s, i) => [
+      h('button', { class: 'small ghost', disabled: i === 0, onclick: () => { e.steps.splice(i - 1, 0, e.steps.splice(i, 1)[0]); changed(); drawMain(); } }, '↑'),
+      h('button', { class: 'small ghost', disabled: i === e.steps.length - 1, onclick: () => { e.steps.splice(i + 1, 0, e.steps.splice(i, 1)[0]); changed(); drawMain(); } }, '↓'),
+      h('button', { class: 'small ghost danger', onclick: () => { const gone = s.id; e.steps.splice(i, 1); for (const x of e.steps) { if (x.next === gone) delete x.next; if (x.else === gone) delete x.else; for (const c of x.choices || []) if (c.next === gone) c.next = 'end'; } changed(); drawMain(); } }, 'remove')];
+    const bellsInput = (s, key) => { const inp = h('input', { type: 'number', min: 1, max: 65535, step: 1, value: s[key] || 100 }); inp.style.width = '110px'; inp.addEventListener('input', () => { s[key] = Math.max(1, Math.min(65535, parseInt(inp.value, 10) || 1)); changed(); }); return inp; };
+    const actionCard = (s, i) => {
+      const kd = kindOf(s);
+      const head = h('div', { class: 'row', style: { marginBottom: '6px' } }, h('span', { class: 'chip' }, 'step ' + (i + 1)), h('div', { class: 'grow' }), ...moveBtns(s, i));
+      if (kd === 'charge') {
+        const nx = nextSelect(s.next, i, (v) => { if (v) s.next = v; else delete s.next; changed(); }, true); nx.style.width = '220px';
+        return h('div', { class: 'card' }, head, h('div', { class: 'row', style: { gap: '8px' } }, h('b', {}, 'Charge'), bellsInput(s, 'charge'), h('span', {}, 'Bells'), h('div', { class: 'grow' }), h('span', { class: 'dim', style: { fontSize: '12px' } }, 'Then'), nx),
+          h('div', { class: 'dim', style: { fontSize: '12px', marginTop: '4px' } }, 'Takes the Bells from the player’s pocket (the game’s own payment, as at Harriet’s). It does not check they have enough: put a Bells check before it.'));
+      }
+      if (kd === 'check') {
+        const yes = nextSelect(s.next, i, (v) => { if (v) s.next = v; else delete s.next; changed(); }, true); yes.style.width = '220px';
+        const no = nextSelect(s.else || 'end', i, (v) => { s.else = v; changed(); }, false); no.style.width = '220px';
+        return h('div', { class: 'card' }, head, h('div', { class: 'row', style: { gap: '8px' } }, h('b', {}, 'If the player has at least'), bellsInput(s, 'has_bells'), h('span', {}, 'Bells')),
+          h('div', { class: 'grid2', style: { marginTop: '6px' } }, field('They have enough', yes), field('They don’t', no)));
+      }
+      const a = s.action || {};
+      return h('div', { class: 'card' }, head, h('div', { class: 'dim', style: { fontSize: '12px' } }, 'Game action ' + (a.sub || 0) + '/' + a.event + ' (' + (a.param || 0) + ')'));
+    };
     const stepCard = (s, i) => {
+      if (kindOf(s) !== 'message') return actionCard(s, i);
       const ch = s.choices || [];
       return h('div', { class: 'card' }, h('div', { class: 'row', style: { marginBottom: '6px' } }, h('span', { class: 'chip' }, 'message ' + (i + 1)), h('div', { class: 'grow' }),
         h('button', { class: 'small ghost', disabled: i === 0, onclick: () => { e.steps.splice(i - 1, 0, e.steps.splice(i, 1)[0]); changed(); drawMain(); } }, '↑'),
@@ -104,6 +129,9 @@ export function render(root, app) {
       e.mode === 'rewrite'
         ? h('div', { class: 'col' }, info.nodes.length ? info.nodes.map(rewriteCard) : h('div', { class: 'dim' }, 'No readable lines in this conversation.'))
         : h('div', { class: 'col' }, e.steps.map(stepCard),
+          h('div', { class: 'row', style: { gap: '6px' } },
+            h('button', { onclick: () => { e.steps.push({ id: uid('c', e.steps), charge: 100 }); changed(); drawMain(); } }, '+ Charge Bells'),
+            h('button', { onclick: () => { e.steps.push({ id: uid('k', e.steps), has_bells: 100, else: 'end' }); changed(); drawMain(); } }, '+ Check the player’s Bells')),
           e.steps.length < maxSteps ? h('button', { onclick: () => { e.steps.push({ id: uid('m', e.steps), text: { en: '' } }); changed(); drawMain(); } }, '+ Add a message') : h('div', { class: 'dim' }, 'This conversation has room for ' + maxSteps + ' messages.'),
           info.goodbye ? h('div', { class: 'card' }, h('h3', {}, 'Goodbye'), goodbye) : null));
     mount(side, h('div', { class: 'panel-title' }, 'Preview'), h('div', { class: 'dim' }, 'Click in a message to see how it looks in the game.'),

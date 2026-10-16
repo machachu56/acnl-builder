@@ -17,6 +17,11 @@ mode    sequence: the conversation becomes these messages. A message may end wit
                   own menus. The flow is built anew from the messages (nodes appended to the game's flow file):
                   {"id": "m1", "text": {...}, "next": "m2" | "end" (default: the message below),
                    "choices": [{"text": {"en": "Sure!"}, "next": "m3" | "end"}, ...]}
+                  Steps that are not messages (seen in the game, confirmed in game):
+                  {"id": "c1", "charge": 100}                  takes 100 Bells from the player (Harriet's event 0/1)
+                  {"id": "k1", "has_bells": 100, "next": .., "else": ..}   goes on to `next` if the player has at least
+                                                               100 Bells, else to `else` (the game's branch 0/34)
+                  {"id": "a1", "action": {"sub": 0, "event": 1, "param": 100}}   any action of the game, raw
         rewrite:  the game's own messages are replaced one by one and the conversation keeps its structure: its questions,
                   answers ("Yes!") and branches stay as the game has them
 
@@ -131,13 +136,13 @@ def compile(b):
                     extra.append({"file": talk, "label": e["label"], "variant": text_key, "text": e["text"]})
             b.note("event %s: %d line(s) rewritten" % (ev["id"], len([e for e in ev.get("edits") or [] if any((e.get("text") or {}).values())])))
             continue
-        steps = [st for st in ev.get("steps") or [] if st.get("action") or any((st.get("text") or {}).values())]
+        steps = [st for st in ev.get("steps") or [] if not is_message(st) or any((st.get("text") or {}).values())]
         if goodbye and any((ev.get("goodbye") or {}).values()):
             extra.append({"file": talk, "label": goodbye, "variant": text_key, "text": ev["goodbye"]})
         if not steps:
             continue
         slots = text_slots(flow_path, talk, first, goodbye)
-        if len([st for st in steps if not st.get("action")]) > len(slots):
+        if len([st for st in steps if is_message(st)]) > len(slots):
             raise ValueError("event %s: at most %d messages for this conversation (got %d)" % (ev["id"], len(slots), len(steps)))
         flow = FlowFile(b.game(flow_path, vname))
         for line in build_sequence(flow, ev["id"], steps, slots, extra, talk, text_key, first):
@@ -215,6 +220,12 @@ class FlowFile:
         self.nodes.append(bytearray(struct.pack("<BBHHHHHHH", 3, sub, 0, param & 0xFFFF, 0, nxt, event, 0, 0)))
         return len(self.nodes) - 1
 
+    def add_branch(self, sub, query, param, targets):
+        """a branch of the game (query `query` with `param`), its cases' targets in the branch table"""
+        self.nodes.append(bytearray(struct.pack("<BBHHHHHHH", 2, sub, 0, param & 0xFFFF, 0, END, query, len(targets), len(self.table))))
+        self.table += list(targets)
+        return len(self.nodes) - 1
+
     def add_choice_branch(self, targets):
         """a branch on the answer the player picked in the menu of the message before it (the game's own query for
         an n-answer menu is 2n - 1, with the answers' targets in the branch table, first answer first)"""
@@ -275,6 +286,15 @@ def text_slots(flow, talk, first=None, goodbye=None):
     return out
 
 
+CHARGE = (0, 1)            # action: take `param` Bells from the player (Harriet after a haircut: 3000; confirmed in game)
+HAS_BELLS = (0, 34)        # branch: case 0 if the player has at least `param` Bells, case 1 if not (the Dream Suite's 500)
+MAX_BELLS = 0xFFFF         # the amount is a 16-bit field of the node
+
+
+def is_message(st):
+    return not (st.get("action") or "charge" in st or "has_bells" in st)
+
+
 def build_sequence(flow, ev_id, steps, slots, extra, talk, text_key, first=None):
     """the steps as new nodes of `flow` (the conversation's entries lead to the first); their texts go into `extra`
     (text edits of `talk`). Returns warnings."""
@@ -289,10 +309,20 @@ def build_sequence(flow, ev_id, steps, slots, extra, talk, text_key, first=None)
     first_node = len(flow.nodes)
     msg_nodes = [first_node + k for k in range(len(steps))]
     slot_of, n = {}, 0
+    def amount(st, key):
+        n = int(st.get(key) or 0)
+        if not 0 < n <= MAX_BELLS:
+            raise ValueError("event %s: %s must be 1 to %d Bells (got %s)" % (ev_id, key.replace("_", " "), MAX_BELLS, st.get(key)))
+        return n
+
     for k, st in enumerate(steps):
         if st.get("action"):                     # a game action: {"sub": 1, "event": 7, "param": 0}
             a = st["action"]
             flow.add_event(int(a.get("sub", 0)), int(a["event"]), int(a.get("param", 0)))
+        elif "charge" in st:
+            flow.add_event(CHARGE[0], CHARGE[1], amount(st, "charge"))
+        elif "has_bells" in st:                  # its cases are set below, once every step has its node
+            flow.add_branch(HAS_BELLS[0], HAS_BELLS[1], amount(st, "has_bells"), [END, END])
         else:
             flow.add_message(fid, slots[n][1])
             slot_of[k] = slots[n]
@@ -310,8 +340,13 @@ def build_sequence(flow, ev_id, steps, slots, extra, talk, text_key, first=None)
 
     for k, st in enumerate(steps):
         sid = st.get("id") or "m%d" % (k + 1)
-        if st.get("action"):                     # an action goes on with the next step (or where it says)
+        if st.get("action") or "charge" in st:   # an action goes on with the next step (or where it says)
             struct.pack_into("<H", flow.nodes[msg_nodes[k]], 8, target(st.get("next"), k, "action %s" % sid))
+            continue
+        if "has_bells" in st:                    # enough: `next` (default the step below); not enough: `else` (default the end)
+            t0 = struct.unpack_from("<H", flow.nodes[msg_nodes[k]], 14)[0]
+            flow.table[t0] = target(st.get("next"), k, "step %s" % sid)
+            flow.table[t0 + 1] = target(st.get("else") or "end", k, "step %s" % sid)
             continue
         text = dict(st["text"])
         choices = [c for c in st.get("choices") or [] if any((c.get("text") or {}).values())]

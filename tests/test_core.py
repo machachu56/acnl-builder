@@ -122,6 +122,25 @@ class GameTests(unittest.TestCase):
         self.assertEqual(g.names, f.names)
         self.assertEqual(extra[0]["text"]["en"], "Tour?{15.5:00000000}\nYes!\nNo.")
 
+    def test_flow_money_steps(self):
+        from acnlb import rom
+        from acnlb.features import events
+        flow, talk = "/Script/Flow/NPC_Secretary_Inside.msbf", "/Script/Talk/NPC_Secretary.umsbt"
+        f = events.FlowFile(rom.read(flow))
+        n0 = len(f.nodes)
+        steps = [{"id": "k", "has_bells": 300, "else": "poor"}, {"id": "c", "charge": 300}, {"id": "ok", "text": {"en": "Thanks!"}, "next": "end"},
+                 {"id": "poor", "text": {"en": "You're short."}}]
+        extra = []
+        events.build_sequence(f, "t", steps, events.text_slots(flow, talk), extra, talk, None)
+        g = events.FlowFile(f.build())
+        br, ch = g.nodes[n0], g.nodes[n0 + 1]
+        self.assertEqual((br[0], br[1]) + struct.unpack_from("<HHH", br, 10)[:2] + (struct.unpack_from("<H", br, 4)[0],), (2, 0, 34, 2, 300))
+        t0 = struct.unpack_from("<H", br, 14)[0]
+        self.assertEqual(g.table[t0:t0 + 2], [n0 + 1, n0 + 3])                      # enough: charge; not enough: "You're short."
+        self.assertEqual((ch[0], ch[1]) + (struct.unpack_from("<H", ch, 10)[0], struct.unpack_from("<H", ch, 4)[0], struct.unpack_from("<H", ch, 8)[0]),
+                         (3, 0, 1, 300, n0 + 2))
+        self.assertEqual(len(extra), 2)
+
     def test_export_small_project(self):
         from acnlb import build, project
         old = env.PROJECTS, env.EXPORTS
