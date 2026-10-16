@@ -551,7 +551,8 @@ int hook_trace_pre(void *user) {
     int i = (int)(intptr_t)user;
     Trace &t = g_trace_fn[i];
     /* labels starting with '@' are traced anywhere in the building (talking), the others while on a link tile (leaving) */
-    bool on = (t.label[0] == '@' ? g_cur >= 0 : g_on_link) && t.calls < 12;
+    /* '!' anywhere at any time, '@' inside a building of the mod, the others while on a link tile */
+    bool on = (t.label[0] == '!' ? true : t.label[0] == '@' ? g_cur >= 0 : g_on_link) && t.calls < 12;
     push(s_trace[i], on ? 1 : 0);
     if (on) {
         t.calls++;
@@ -939,8 +940,21 @@ void talk_watch() {
              (unsigned)ctl, (unsigned)st, (unsigned)w[0], (unsigned)w[1], (unsigned)w[2], (unsigned)w[3], (unsigned)w[4], (unsigned)w[5], (unsigned)w[6], (unsigned)w[7],
              (unsigned)w[8], (unsigned)w[9], (unsigned)w[10], (unsigned)w[11]);
 }
+uint8_t g_win_last[0x20];
+int g_win_logs = 0;
+void window_watch() {
+    if (!g_ntrace || g_win_logs >= 200) return;
+    uint8_t w[0x20];
+    if (acnl_read(0x94f704, w, sizeof w) != 0 || !memcmp(w, g_win_last, sizeof w)) return;
+    memcpy(g_win_last, w, sizeof w);
+    g_win_logs++;
+    acnl_log("trace: bells window frame %d scene %u: mode %u want %u [5]=%u [6]=%u +0x10 %08x +0x14 %08x +0x1c %08x", g_frames, (unsigned)acnl_rd8(0x956322),
+             w[0], w[1], w[5], w[6], (unsigned)(w[0x10] | w[0x11] << 8 | w[0x12] << 16 | (uint32_t)w[0x13] << 24),
+             (unsigned)(w[0x14] | w[0x15] << 8 | w[0x16] << 16 | (uint32_t)w[0x17] << 24), (unsigned)(w[0x1c] | w[0x1d] << 8 | w[0x1e] << 16 | (uint32_t)w[0x1f] << 24));
+}
 void hook_player_update_post(void *) {
     g_frames++;
+    window_watch();
     doors_tick();
     doors_face_player();
     talk_watch();
@@ -1086,8 +1100,16 @@ void read_cstr(uint32_t a, char *out, int cap) {
     if (a >= 0x100000) for (; i < cap - 1; i++) { uint8_t ch = acnl_rd8(a + (uint32_t)i); if (!ch || ch < 32 || ch > 126) break; out[i] = (char)ch; }
     out[i] = 0;
 }
+Saved s_flow;
+void hook_flow_load_post(void *) {
+    uint32_t recept = pop(s_flow);
+    char path[80];
+    read_cstr(acnl_rd32(recept + 0x108), path, sizeof path);
+    acnl_log("trace: conversation file %s (scene %u)", path, (unsigned)acnl_rd8(0x956322));
+}
 int hook_flow_load_pre(void *) {
     uint32_t recept = acnl_reg(1), r3 = acnl_reg(3);
+    push(s_flow, recept);
     char name[64];
     read_cstr(acnl_reg(2), name, sizeof name);
     int who = -1;
@@ -1342,7 +1364,7 @@ extern "C" int acnl_mod_init(void) {
     /* after the scripts' hook: a script may turn a furniture request into a character before the exhibits are hidden */
     if (any_hide && acnl_hook(FN_ACTOR_CREATE, hook_actor_create_pre, nullptr, nullptr) != 0) return -1;
     if (any_jmp && acnl_hook(FN_JMP_BLOCK, hook_jmp_block_pre, hook_jmp_block_post, nullptr) != 0) return -1;
-    if (g_scripts && g_ntrace && acnl_hook(FN_FLOW_LOAD, hook_flow_load_pre, nullptr, nullptr) != 0) acnl_log("builder: cannot hook the conversation loader");
+    if (g_scripts && g_ntrace && acnl_hook(FN_FLOW_LOAD, hook_flow_load_pre, hook_flow_load_post, nullptr) != 0) acnl_log("builder: cannot hook the conversation loader");
     if ((g_scripts || any_links) && acnl_hook(FN_PLAYER_UPDATE, nullptr, hook_player_update_post, nullptr) != 0) acnl_log("builder: cannot hook the player's update");
     /* the tracing hooks last: the SDK has 128 hook slots, the mod's own come first */
     for (int i = 0; i < g_ntrace; i++)

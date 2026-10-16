@@ -131,13 +131,13 @@ def compile(b):
                     extra.append({"file": talk, "label": e["label"], "variant": text_key, "text": e["text"]})
             b.note("event %s: %d line(s) rewritten" % (ev["id"], len([e for e in ev.get("edits") or [] if any((e.get("text") or {}).values())])))
             continue
-        steps = [st for st in ev.get("steps") or [] if any((st.get("text") or {}).values())]
+        steps = [st for st in ev.get("steps") or [] if st.get("action") or any((st.get("text") or {}).values())]
         if goodbye and any((ev.get("goodbye") or {}).values()):
             extra.append({"file": talk, "label": goodbye, "variant": text_key, "text": ev["goodbye"]})
         if not steps:
             continue
         slots = text_slots(flow_path, talk, first, goodbye)
-        if len(steps) > len(slots):
+        if len([st for st in steps if not st.get("action")]) > len(slots):
             raise ValueError("event %s: at most %d messages for this conversation (got %d)" % (ev["id"], len(slots), len(steps)))
         flow = FlowFile(b.game(flow_path, vname))
         for line in build_sequence(flow, ev["id"], steps, slots, extra, talk, text_key, first):
@@ -208,6 +208,11 @@ class FlowFile:
 
     def add_message(self, file_id, index, nxt=END):
         self.nodes.append(bytearray(struct.pack("<BBHHHHHHH", 1, 0xFF, 0, 0, 0, nxt, file_id, index, 0)))
+        return len(self.nodes) - 1
+
+    def add_event(self, sub, event, param, nxt=END):
+        """an action of the game (a type 3 node): subtype, event number at +10, its parameter at +4"""
+        self.nodes.append(bytearray(struct.pack("<BBHHHHHHH", 3, sub, 0, param & 0xFFFF, 0, nxt, event, 0, 0)))
         return len(self.nodes) - 1
 
     def add_choice_branch(self, targets):
@@ -283,8 +288,15 @@ def build_sequence(flow, ev_id, steps, slots, extra, talk, text_key, first=None)
     fid = flow.message_file_id()
     first_node = len(flow.nodes)
     msg_nodes = [first_node + k for k in range(len(steps))]
+    slot_of, n = {}, 0
     for k, st in enumerate(steps):
-        flow.add_message(fid, slots[k][1])
+        if st.get("action"):                     # a game action: {"sub": 1, "event": 7, "param": 0}
+            a = st["action"]
+            flow.add_event(int(a.get("sub", 0)), int(a["event"]), int(a.get("param", 0)))
+        else:
+            flow.add_message(fid, slots[n][1])
+            slot_of[k] = slots[n]
+            n += 1
 
     def target(nxt, k, what):
         """a step's (or an answer's) next: "end", a message id, or nothing = the message below"""
@@ -298,6 +310,9 @@ def build_sequence(flow, ev_id, steps, slots, extra, talk, text_key, first=None)
 
     for k, st in enumerate(steps):
         sid = st.get("id") or "m%d" % (k + 1)
+        if st.get("action"):                     # an action goes on with the next step (or where it says)
+            struct.pack_into("<H", flow.nodes[msg_nodes[k]], 8, target(st.get("next"), k, "action %s" % sid))
+            continue
         text = dict(st["text"])
         choices = [c for c in st.get("choices") or [] if any((c.get("text") or {}).values())]
         if choices:
@@ -315,7 +330,7 @@ def build_sequence(flow, ev_id, steps, slots, extra, talk, text_key, first=None)
             flow.set_next(msg_nodes[k], br)
         else:
             flow.set_next(msg_nodes[k], target(st.get("next"), k, "message %s" % sid))
-        extra.append({"file": talk, "label": slots[k][0], "variant": text_key, "text": text})
+        extra.append({"file": talk, "label": slot_of[k][0], "variant": text_key, "text": text})
     # the conversation starts with the first message: where the game's own first message was (its other branches stay, e.g. Tom Nook's
     # goodbye when the player leaves, which makes the player leave), or else from every entry
     if first is None or not flow.redirect(first, first_node):

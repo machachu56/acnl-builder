@@ -1,7 +1,7 @@
 import { get, q } from '../api.js';
 import { S, changed, uid } from '../state.js';
 import { h, mount, toast, select, debounce, field, checkbox, confirmBox, textInput } from '../ui.js';
-import { previewBoxes, CODES } from './dialogue.js';
+import { previewBoxes, CODES, reactionPicker } from './dialogue.js';
 
 export const id = 'events', title = 'Events', icon = '✦', needsProject = true;
 const LANGS = ['en', 'es', 'fr', 'it', 'de'];
@@ -43,6 +43,7 @@ export function render(root, app) {
       ...e.steps.filter((x, k) => k !== i || !allowBelow).map((x) => [x.id, 'Go to ' + stepName(x.id)])], cur || (allowBelow ? '' : 'end'), onPick);
     const b = P.buildings.find((x) => x.id === e.building);
     const tabs = h('div', { class: 'tabs', style: { margin: '10px 0' } }, LANGS.map((l) => h('button', { class: l === st.lang ? 'on' : '', onclick: () => { st.lang = l; drawMain(); } }, l.toUpperCase())));
+    const insertAt = (c) => { const t = st.focus; if (!t) { toast('Click in a message first', 'info'); return; } t.setRangeText(c, t.selectionStart, t.selectionEnd, 'end'); t.dispatchEvent(new Event('input')); t.focus(); };
     const bind = (ta, get_, set_) => {
       ta.addEventListener('input', () => { set_(ta.value); changed(); showPreview(ta.value || get_(true) || ''); });
       ta.addEventListener('focus', () => { st.focus = ta; showPreview(ta.value || get_(true) || ''); });
@@ -99,7 +100,7 @@ export function render(root, app) {
       e.scope === 'always' ? h('div', { class: 'warn-box', style: { marginTop: '8px' } }, 'This changes the conversation everywhere in the game, all the time.') : null,
       h('div', { class: 'grid2', style: { marginTop: '8px' } }, field('What to change', select([['sequence', 'My own conversation (messages, questions and answers)'], ['rewrite', 'Rewrite the game’s own lines (its questions and answers stay)']], e.mode, (v) => { e.mode = v; changed(); drawMain(); }))),
       tabs,
-      h('div', { class: 'toolbar', style: { gap: '4px', border: '1px solid var(--line)', borderRadius: '6px', marginBottom: '10px' } }, h('span', { class: 'dim' }, 'Insert'), CODES.map(([l, c]) => h('button', { class: 'small', title: c, onclick: () => { const t = st.focus; if (!t) { toast('Click in a message first', 'info'); return; } t.setRangeText(c, t.selectionStart, t.selectionEnd, 'end'); t.dispatchEvent(new Event('input')); t.focus(); } }, l))),
+      h('div', { class: 'toolbar', style: { gap: '4px', border: '1px solid var(--line)', borderRadius: '6px', marginBottom: '10px' } }, h('span', { class: 'dim' }, 'Insert'), CODES.map(([l, c]) => h('button', { class: 'small', title: c, onclick: () => insertAt(c) }, l)), reactionPicker(insertAt)),
       e.mode === 'rewrite'
         ? h('div', { class: 'col' }, info.nodes.length ? info.nodes.map(rewriteCard) : h('div', { class: 'dim' }, 'No readable lines in this conversation.'))
         : h('div', { class: 'col' }, e.steps.map(stepCard),

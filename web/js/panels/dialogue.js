@@ -8,9 +8,31 @@ const LANGS = ['en', 'es', 'fr', 'it', 'de'];
 const MAX_LINE = 34, MAX_ROWS = 3;
 export const CODES = [
   ['Player name', '{5.0:}'], ['Town name', '{5.5:}'], ['New box', '{0.4:}'], ['Pause', '{7.0:0a000000}'],
-  ['Highlight', '{0.3:0200}…{0.3:ffff}'], ['Smile', '{3.1:}'], ['Delighted', '{3.3:}'], ['Proud', '{3.5:}'], ['Thinking', '{3.11:}'], ['Surprised', '{3.15:}'], ['Dreamy', '{3.21:}'], ['Asking', '{3.23:}'], ['Embarrassed', '{3.26:}'], ['Beaming', '{3.38:}'],
+  ['Highlight', '{0.3:0200}…{0.3:ffff}'],
 ];
-const EXPR = { 1: 'smile', 3: 'delighted', 5: 'proud', 11: 'thinking', 15: 'surprised', 21: 'dreamy', 23: 'asking', 26: 'embarrassed', 38: 'beaming' };
+// the speaker's reaction for the rest of the line: {3.n:}. Named from how the game uses each one, with a line of the game as the example
+export const REACTIONS = [
+  [0, 'talking', 'It\'s me!'], [1, 'smiling', 'Wouldn\'t you prefer a nice warm house, hm?'], [2, 'laughing', 'GAHAHA!'], [3, 'overjoyed', 'Woohoo! Awesome!'],
+  [4, 'craving', 'Mmm... It sure was good!'], [5, 'pumped up', 'I\'m gonna go all out today!'], [6, 'indignant', 'Of course I did!'], [7, 'angry', 'That hurt! What do you think you\'re doing?!'],
+  [8, 'furious', 'No, YOU\'RE the wafflehammer!'], [9, 'sad', 'It kinda makes me sad.'], [10, 'shaken', 'Whew! What the heck was that?!'], [11, 'hesitant', 'Umm... This is awkward, but…'],
+  [12, 'sorry', 'I\'m really sorry I wasn\'t at home.'], [13, 'impatient', 'I can\'t stand the anticipation!'], [14, 'crying', 'Help me, please!'], [15, 'surprised', 'What\'s this? Could it be...?'],
+  [16, 'realizing', 'Oh! You\'re the new mayor...right?'], [17, 'shocked', 'What?! You opened it?'], [18, 'startled', 'Whoa!'], [19, 'doubtful', 'Uh, I dunno...'],
+  [20, 'shivering', 'S-so v-very c-cold...'], [21, 'pleasant', 'This diorama is really great...'], [22, 'thrilled', 'Really?! That\'s great!'], [23, 'asking', 'Do you remember me?'],
+  [24, 'wailing', 'Waaaahh...! What am I gonna read now?'], [25, 'yawning', 'Yaaaawn...'], [26, 'flattered', 'Aww, cut it out! You and your flattery...'], [27, 'grumpy', 'I got tired of waiting!'],
+  [28, 'grinning', 'OK then! CHOMP!'], [29, 'congratulating', 'Congrats! Now it\'s a competition!'], [30, 'sneezing', 'Achoo!'], [31, 'amazed', 'WHOA! You\'re a master angler!'],
+  [32, 'greeting', 'Hey, nice to meet you!'], [33, 'giggling', 'Hee hee! That\'s right! You get it!'], [34, 'overheating', 'So...hot...'], [35, 'confident', 'Of course, I\'ll be the winner!'],
+  [36, 'knowing', 'Wearing your hero duds again, huh?'], [37, 'polite', 'I\'m grateful for your cooperation.'], [38, 'beaming', 'Thanks a ton!'], [39, 'bashful', 'I\'m all excited and nervous!'],
+  [40, 'unimpressed', 'Oh, ha ha. Very funny.'], [41, 'deflated', 'Oh, OK...'], [42, 'showing off', 'Here comes the first item!'], [43, 'wistful', 'I\'d love to have that kind of close friendship…'],
+  [44, 'fired up', 'Let\'s do this!'], [45, 'straining', 'Nnnnnnggg...'], [46, 'dancing', 'It\'s 1 and 2, step, step!'],
+];
+const EXPR = Object.fromEntries(REACTIONS.map(([n, name]) => [n, name]));
+// a select that inserts a reaction where the cursor is
+export function reactionPicker(insert) {
+  const s = h('select', { title: 'The speaker plays this reaction from here on', onchange: () => { if (s.value !== '') insert('{3.' + s.value + ':}'); s.value = ''; } },
+    h('option', { value: '' }, 'Reaction…'), REACTIONS.map(([n, name, ex]) => h('option', { value: n }, name + ' — “' + ex + '”')));
+  s.style.width = '160px';
+  return s;
+}
 const CODE_RE = /\{(\d+)\.(\d+):([0-9a-f]*)\}/g;
 
 function plainLen(line) {
@@ -120,7 +142,7 @@ export function render(root, app) {
         h('div', { class: 'grow' }),
         P.buildings.length ? h('div', { class: 'row', style: { padding: '4px 8px' } }, h('span', { class: 'dim' }, 'Applies'), (() => { const s = select(variants, st.variant, (v) => { st.variant = v; drawList(); }); s.style.width = '190px'; return s; })()) : null),
       h('div', { class: 'toolbar' }, h('b', {}, st.file.replace('/Script/', '')), h('span', { class: 'dim' }, rows.length + ' messages'), h('div', { class: 'grow' }), (() => { filter.style.width = '200px'; return filter; })()),
-      h('div', { class: 'toolbar', style: { gap: '4px' } }, h('span', { class: 'dim' }, 'Insert'), CODES.map(([l, c]) => h('button', { class: 'small', title: c, onclick: () => insertCode(c) }, l))),
+      h('div', { class: 'toolbar', style: { gap: '4px' } }, h('span', { class: 'dim' }, 'Insert'), CODES.map(([l, c]) => h('button', { class: 'small', title: c, onclick: () => insertCode(c) }, l)), reactionPicker(insertCode)),
       h('div', { style: { overflow: 'auto', flex: 1 } }, list));
     drawList();
   }
