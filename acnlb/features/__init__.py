@@ -1,5 +1,5 @@
 """Feature compilers: each takes a Build and stages files / plugin config for its part of the project."""
-from . import text, textures, runtime, buildings, interiors, events, villagers, scripts
+from . import text, textures, runtime, buildings, interiors, events, villagers, scripts, objects
 
 # order matters: buildings and interiors create variants that text/events then target
 FEATURES = [
@@ -10,4 +10,5 @@ FEATURES = [
     ("text", text.compile),
     ("textures", textures.compile),
     ("scripts", scripts.compile),
+    ("objects", objects.compile),
 ]

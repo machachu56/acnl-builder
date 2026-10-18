@@ -67,7 +67,7 @@ def build(proj, only=None):
 
 
 def plugin_needed(b):
-    return bool(b.cfg["buildings"] or b.cfg["events"] or b.cfg.get("hooks") or b.cfg.get("scripts"))
+    return bool(b.cfg["buildings"] or b.cfg["events"] or b.cfg.get("hooks") or b.cfg.get("scripts") or b.cfg.get("vehicles"))
 
 
 # ------------------------------------------------------------------ the runtime plugin
@@ -82,7 +82,9 @@ def build_plugin(b):
     src = os.path.join(env.ROOT, "plugin", "acnlb_runtime.cpp")
     sdk_c = os.path.join(env.SDK, "acnl_mod.c")
     h = hashlib.sha256()
-    for f in (src, sdk_c, os.path.join(env.SDK, "acnl_mod.h")):
+    plugin_dir = os.path.dirname(src)
+    headers = sorted(os.path.join(plugin_dir, f) for f in os.listdir(plugin_dir) if f.endswith(".h"))   # script_vm.h, vehicles.h...
+    for f in (src, sdk_c, os.path.join(env.SDK, "acnl_mod.h"), *headers):
         h.update(open(f, "rb").read())
     os.makedirs(env.CACHE, exist_ok=True)
     out = os.path.join(env.CACHE, "runtime-%s.wasm" % h.hexdigest()[:16])

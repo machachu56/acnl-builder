@@ -6,6 +6,7 @@ project.json (format 1):
   textures  [{file, name, png, variant?}]                    repaint a texture of any game model
   villagers [{...}]   buildings [{...}]   interiors [{...}]   events [{...}]
   scripts   [{id, name, enabled, code}]                       Python-syntax triggers (see docs/SCRIPTING.md)
+  objects   [{id, name, kind, model, start, ...}]             outdoor objects drawn by the runtime: vehicles (features/objects.py)
   actors    {name: profile number}                           names for the actors scripts may mention
 """
 import json
@@ -23,7 +24,7 @@ ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 
 def blank(pid, title=None):
     return {"format": FORMAT, "id": pid, "title": title or pid, "author": "", "description": "", "version": "1.0",
-            "text": [], "textures": [], "villagers": [], "designs": [], "buildings": [], "interiors": [], "events": [], "scripts": [], "actors": {}, "unsafe_ok": []}
+            "text": [], "textures": [], "villagers": [], "designs": [], "buildings": [], "interiors": [], "events": [], "scripts": [], "actors": {}, "unsafe_ok": [], "objects": []}
 
 
 def project_dir(pid):

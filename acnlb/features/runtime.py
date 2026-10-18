@@ -27,6 +27,10 @@ def config_text(b):
             if pg.get("entry"):
                 out.append("entry = %s" % pg["entry"])
             out += ["link = %s" % l for l in pg.get("links", [])]
+    for v in b.cfg.get("vehicles", []):
+        out += ["", "[vehicle]"]
+        for k, val in v.items():
+            out.append("%s = %s" % (k, _val(val)))
     if b.cfg.get("characters"):
         out += ["", "[characters]"] + ["%s = %d, %s" % (k, prof, v) for k, prof, v in b.cfg["characters"]]
     import os

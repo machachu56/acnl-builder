@@ -14,7 +14,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import __version__, build, catalog, env, exterior, interior, models, paintx, project, rom, texfmt
+from . import __version__, build, catalog, env, exterior, interior, models, paintx, project, rom, texfmt, vehicle
 from .features import interiors as interiors_feature
 from .features import text as textmod
 from .features import textures as texmod
@@ -263,6 +263,35 @@ def ext_atlas(req, q):
     b = req.json()
     ext = exterior.build(b.get("style") or {})
     return ("image/png", texmod.to_png(ext.paint_body(False).rows()))
+
+
+@route("GET", "/api/objects/kinds")
+def objects_kinds(req, q):
+    cars = [{"key": k, "label": v["label"], "colors": v.get("color_names") or ["Default"]} for k, v in vehicle.GAME_CARS.items()]
+    return {"cars": cars, "starts": [["house", "Next to the player's house"], ["town_hall", "Next to the town hall"],
+                                     ["station", "Next to the train station"], ["tiles", "At a tile of the town (x, z)"]],
+            "sounds": [["sporty", "Sporty engine"], ["classic", "Soft old engine"]]}
+
+
+@route("POST", "/api/objects/preview")
+def objects_preview(req, q):
+    """the vehicle's model for the 3D preview: one viewer part per prop part (its texture as PNG)"""
+    b = req.json()
+    pid = b.get("project")
+    spec = dict(b.get("model") or {"car": "sports_car"})
+    read = (lambda name: open(project.asset_path(pid, name), "rb").read()) if pid else None
+    prop, info, scale = vehicle.make_prop(spec, read)
+    pngs, parts = {}, []
+    for p in prop.parts:
+        if not p.tris:
+            continue
+        if p.tex not in pngs:
+            pngs[p.tex] = png_b64(prop.textures[p.tex][2]) if 0 <= p.tex < len(prop.textures) else png_b64([[(255, 255, 255, 255)]])
+        parts.append({"name": p.name, "positions": [c for v in p.verts for c in v[0]], "normals": [c for v in p.verts for c in v[1]],
+                      "uvs": [c for v in p.verts for c in v[2]], "colors": [c / 255 for v in p.verts for c in v[3][:3]],
+                      "indices": p.tris, "atlas": pngs[p.tex]})
+    lo, hi = prop.bounds()
+    return {"parts": parts, "size": [round(hi[i] - lo[i], 1) for i in range(3)], "front": info["front"], "triangles": prop.triangles()}
 
 
 @route("POST", "/api/interior/preview")

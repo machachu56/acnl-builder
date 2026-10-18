@@ -7,11 +7,12 @@ import * as villagers from './panels/villagers.js';
 import * as textures from './panels/textures.js';
 import * as buildings from './panels/buildings.js';
 import * as interiors from './panels/interiors.js';
+import * as objects from './panels/objects.js';
 import * as events from './panels/events.js';
 import * as scripts from './panels/scripts.js';
 import * as exportp from './panels/export.js';
 
-const PANELS = [home, { sep: true }, dialogue, villagers, textures, { sep: true }, buildings, interiors, events, scripts, { sep: true }, exportp];
+const PANELS = [home, { sep: true }, dialogue, villagers, textures, { sep: true }, buildings, interiors, objects, events, scripts, { sep: true }, exportp];
 let current = null, cleanup = null;
 
 export const app = {
@@ -24,7 +25,7 @@ window.app = app;
 function counts() {
   const p = S.project;
   if (!p) return {};
-  return { dialogue: p.text.length, villagers: p.villagers.length, textures: p.textures.length, buildings: p.buildings.length, interiors: p.interiors.length, events: p.events.length, scripts: (p.scripts || []).length };
+  return { dialogue: p.text.length, villagers: p.villagers.length, textures: p.textures.length, buildings: p.buildings.length, interiors: p.interiors.length, objects: (p.objects || []).length, events: p.events.length, scripts: (p.scripts || []).length };
 }
 
 function renderNav() {
