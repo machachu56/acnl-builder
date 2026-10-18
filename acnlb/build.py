@@ -157,8 +157,19 @@ def export(pid, out=None, install=False):
     return rep
 
 
-def install_dir():
+def data_dir():
+    """the game's own folder (settings, saves, mods): ACNL_DATA (what --data gives the game), else its default"""
+    if os.environ.get("ACNL_DATA"):
+        return os.path.abspath(os.environ["ACNL_DATA"])
     if sys.platform == "win32":
-        return os.path.join(os.environ.get("APPDATA", ""), "acnl-recomp", "mods")
+        return os.path.join(os.environ.get("APPDATA", ""), "acnl-recomp")
     base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
-    return os.path.join(base, "acnl-recomp", "mods")
+    return os.path.join(base, "acnl-recomp")
+
+
+def install_dir():
+    return os.path.join(data_dir(), "mods")
+
+
+def save_path():
+    return os.path.join(data_dir(), "save", "garden_plus.dat")

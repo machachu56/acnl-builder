@@ -124,11 +124,18 @@ def texture_rows(path, name, data=None):
     raise KeyError(name)
 
 
-def mesh_json(path, model=0):
-    """a game model as JSON for the browser viewer: parts [{positions, normals, uvs, indices, texture}] + textures PNG"""
+def mesh_json(path, model=0, texture_files=()):
+    """a game model as JSON for the browser viewer: parts [{positions, normals, uvs, indices, texture}] + textures PNG
+    (texture_files: more .bcres to take textures from, e.g. a building's season textures)"""
     from .features.textures import to_png
     d = rom.read(path)
     tex = {t.name: t for t in cgfx.textures(d)}
+    src = {n: d for n in tex}
+    for f in texture_files:
+        fd = rom.read(f)
+        for t in cgfx.textures(fd):
+            if t.name not in tex:
+                tex[t.name], src[t.name] = t, fd
     parts = []
     for shp, mat, texs in cgfx.meshes(d, model):
         try:
@@ -138,6 +145,10 @@ def mesh_json(path, model=0):
             continue
         cols = [t for t in texs if t in tex and texfmt.supported(tex[t].fmt)
                 and not any(k in t.lower() for k in ("mask", "lut"))]
+        if not cols and texture_files:             # buildings: the material names its texture only through the season file
+            tail = mat.split("_", 1)[-1].lower()
+            cols = sorted((t for t in tex if texfmt.supported(tex[t].fmt) and not any(k in t.lower() for k in ("mask", "lut"))),
+                          key=lambda t: (tail not in t.lower(), len(t)))[:1]
         parts.append({
             "positions": [c for v in verts for c in v["pos"][:3]],
             "normals": [c for v in verts for c in (v.get("normal") or (0, 1, 0))[:3]],
@@ -147,7 +158,7 @@ def mesh_json(path, model=0):
     for part in parts:
         n = part["texture"]
         if n and n not in textures:
-            rows = texfmt.decode_texture(d, tex[n])
+            rows = texfmt.decode_texture(src[n], tex[n])
             textures[n] = base64.b64encode(to_png(rows)).decode()
     return {"parts": parts, "textures": textures}
 
@@ -165,6 +176,10 @@ WORN_ON = [
 def preview_models(path):
     """[(label, model path)] to show an item texture on, or [] when the item brings its own model"""
     name = path.rsplit("/", 1)[-1]
+    if path.startswith("/Strc/") and "/Textures/" in path:       # a building's season textures: on the building's model
+        folder = path.split("/Textures/")[0]
+        model = folder + "/" + folder.rsplit("/", 1)[-1] + ".bcres"
+        return [["Building", model]] if rom.exists(model) else []
     if not path.startswith("/Item/Model/"):
         return []
     for prefix, models in WORN_ON:

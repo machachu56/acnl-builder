@@ -57,7 +57,8 @@ def find_wasm_ld():
 
 def game_binary():
     """the recomp executable (ACNL_BIN, or the build next to the sources)"""
-    for c in (os.environ.get("ACNL_BIN"), os.path.join(RECOMP, "build", "linux", "acnl"), os.path.join(RECOMP, "build", "linux", "acnl.exe")):
+    for c in (os.environ.get("ACNL_BIN"), os.path.join(RECOMP, "build", "linux", "acnl"), os.path.join(RECOMP, "build", "mac", "acnl"),
+              os.path.join(RECOMP, "build", "linux", "acnl.exe")):
         if c and os.path.isfile(c):
             return c
     return None

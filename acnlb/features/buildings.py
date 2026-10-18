@@ -1,4 +1,4 @@
-"""Custom town buildings.
+"""Custom town buildings, and changes to the game's own ones.
 
 {"id": "baiso", "name": "Baisodrome", "slot": 77, "model": "sobj_baiso",
  "x": null, "y": null, "dx": 4, "dy": 7, "rect": null, "scene": 65, "interior": "<interior id>|null",
@@ -7,10 +7,14 @@
 
 The building takes over the slot of a game building type (see exterior.BASES); its model, textures and
 data files are looked up under /Strc/sobj/<model>/. Inside, the project's interior (if any) is switched on.
+
+The game's own buildings (project "game_buildings", see gamebuildings.py):
+{"slot": 78, "move": [x, y] | null, "remove": false, "interior": "<interior id>" | null, "map_name": {"en": "..."}}
+Their look is repainted in Textures (category Buildings, /Strc/sobj/<model>).
 """
 import re
 
-from .. import env, exterior, paintx, project, rom, texfmt, uipatch
+from .. import env, exterior, gamebuildings, paintx, project, rom, texfmt, uipatch
 from . import textures as texmod
 
 env.setup_path()
@@ -190,3 +194,69 @@ def compile(b):
             if entry[k] is None:
                 del entry[k]
         b.cfg["buildings"].append(entry)
+    compile_game(b)
+
+
+def game_id(slot):
+    return "game_%02x" % slot
+
+
+def game_edits(proj):
+    """the project's changes to the game's buildings that do something, as {id, slot, kind, ...}"""
+    out = []
+    for g in proj.get("game_buildings") or []:
+        slot = int(g.get("slot", -1))
+        k = gamebuildings.kind(slot)
+        if not k:
+            raise ValueError("building ID %#x cannot be changed by a mod" % slot)
+        e = dict(g, id=game_id(slot), slot=slot, kind=k)
+        if not k.get("interior"):
+            e["interior"] = None
+        if not k.get("remove"):
+            e["remove"] = False
+        if not k.get("move"):
+            e["move"] = None
+        if k.get("map_label") is None:
+            e["map_name"] = {}
+        if e.get("remove") or e.get("move") or e.get("interior") or any((e.get("map_name") or {}).values()):
+            out.append(e)
+    return out
+
+
+def compile_game(b):
+    """the game's own buildings: moved, removed, renamed on the map, another interior (plugin [building] with game = 1)"""
+    seen = set()
+    for e in game_edits(b.proj):
+        slot, k = e["slot"], e["kind"]
+        if slot in seen:
+            raise ValueError("%s is changed twice" % k["label"])
+        seen.add(slot)
+        entry = {"id": e["id"], "slot": slot, "game": 1}
+        if e.get("remove"):
+            entry["remove"] = 1
+        elif e.get("move"):
+            x, y = (int(v) for v in e["move"])
+            if not (16 <= x < 96 and 16 <= y < 80):
+                raise ValueError("%s: tile %d, %d is outside the playable town (16..95, 16..79)" % (k["label"], x, y))
+            entry["x"], entry["y"] = x, y
+        if e.get("interior"):
+            entry.update(scene=gamebuildings.NOOKS_SCENE, room=48, hide_furniture=1)
+        names = {l: v for l, v in (e.get("map_name") or {}).items() if v}
+        if names:
+            MAP_NAMES = "/Script/Str/STR_Map_name.umsbt"
+            parts = msbt.umsbt_split(b.game(MAP_NAMES))
+            out = []
+            for i, part in enumerate(parts):
+                lang = msbt.LANGS[i] if i < len(msbt.LANGS) else None
+                m = msbt.Msbt(part)
+                text = names.get(lang) or names.get("en")
+                if text:
+                    m.set_text(k["map_label"], text)
+                out.append(m.build())
+            b.put(MAP_NAMES, msbt.umsbt_join(out))
+        b.cfg["buildings"].append(entry)
+        what = ["removed" if e.get("remove") else "moved to %d, %d" % tuple(e["move"]) if e.get("move") else None,
+                "interior %s" % e["interior"] if e.get("interior") else None, "renamed" if names else None]
+        b.note("%s: %s" % (k["label"], ", ".join(w for w in what if w)))
+        if e.get("remove") or e.get("move"):
+            b.warn("%s is %s in the town's save: removing the mod does not undo it" % (k["label"], "removed" if e.get("remove") else "moved"))

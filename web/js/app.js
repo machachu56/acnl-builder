@@ -25,7 +25,7 @@ window.app = app;
 function counts() {
   const p = S.project;
   if (!p) return {};
-  return { dialogue: p.text.length, villagers: p.villagers.length, textures: p.textures.length, buildings: p.buildings.length, interiors: p.interiors.length, objects: (p.objects || []).length, events: p.events.length, scripts: (p.scripts || []).length };
+  return { dialogue: p.text.length, villagers: p.villagers.length, textures: p.textures.length, buildings: p.buildings.length + (p.game_buildings || []).length, interiors: p.interiors.length, objects: (p.objects || []).length, events: p.events.length, scripts: (p.scripts || []).length };
 }
 
 function renderNav() {

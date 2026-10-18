@@ -10,7 +10,7 @@ const CATS = [
   ['Villagers', '/Npc/Normal/Model/', ''], ['Special characters', '/Npc/Special/Model/', ''],
   ['Tops', '/Item/Model/', 'tops_'], ['Bottoms', '/Item/Model/', 'btms_'], ['Hats & caps', '/Item/Model/', 'cap_'], ['Helmets', '/Item/Model/', 'hlmt_'], ['Wigs', '/Item/Model/', 'mjk_'],
   ['Accessories', '/Item/Model/', 'acc_'], ['Socks', '/Item/Model/', 'sock_'], ['Shoes', '/Item/Model/', 'bot'], ['Furniture', '/Item/Model/', 'rmk_'], ['Interior items', '/Item/Model/', 'int_'], ['Carpets', '/Item/Model/', 'carpet_'], ['Wallpapers', '/Item/Model/', 'wall_'],
-  ['Player body', '/Player/', ''], ['Buildings', '/Strc/sobj/', ''], ['Anything…', '/', ''],
+  ['Player body', '/Player/', ''], ['Buildings', '/Strc/sobj/', ''], ['Public works', '/Strc/fobj/', ''], ['Main Street', '/Strc/dobj/', ''], ['Anything…', '/', ''],
 ];
 
 // entry name for a model+texture; the PNG lives in the project assets

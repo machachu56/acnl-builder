@@ -14,7 +14,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import __version__, build, catalog, env, exterior, interior, models, paintx, project, rom, texfmt, vehicle
+from . import __version__, build, catalog, env, exterior, gamebuildings, interior, models, paintx, project, rom, texfmt, vehicle
 from .features import interiors as interiors_feature
 from .features import text as textmod
 from .features import textures as texmod
@@ -265,12 +265,30 @@ def ext_atlas(req, q):
     return ("image/png", texmod.to_png(ext.paint_body(False).rows()))
 
 
+@route("GET", "/api/game-buildings")
+def game_buildings(req, q):
+    """the game's building types a mod can change, and the ones in the player's town (from the save, if found)"""
+    return {"kinds": gamebuildings.kinds(), "town": gamebuildings.town_buildings(), "save": build.save_path()}
+
+
+@route("GET", "/api/game-buildings/mesh")
+def game_building_mesh(req, q):
+    slot = int((q.get("slot") or ["0"])[0], 0)
+    files = gamebuildings.model_files(slot)
+    if not files:
+        raise ApiError("no model for this building", 404)
+    out = catalog.mesh_json(files[0], texture_files=files[1])
+    out["model"] = files[0]
+    return out
+
+
 @route("GET", "/api/objects/kinds")
 def objects_kinds(req, q):
-    cars = [{"key": k, "label": v["label"], "colors": v.get("color_names") or ["Default"]} for k, v in vehicle.GAME_CARS.items()]
+    from .features import objects as objfeature
+    cars = [{"key": k, "label": v["label"], "colors": v.get("color_names") or ["Default"], "item": v.get("item", 0)} for k, v in vehicle.GAME_CARS.items()]
     return {"cars": cars, "starts": [["house", "Next to the player's house"], ["town_hall", "Next to the town hall"],
                                      ["station", "Next to the train station"], ["tiles", "At a tile of the town (x, z)"]],
-            "sounds": [["sporty", "Sporty engine"], ["classic", "Soft old engine"]]}
+            "sounds": [["sporty", "Sporty engine"], ["classic", "Soft old engine"]], "letter": objfeature.LETTER}
 
 
 @route("POST", "/api/objects/preview")

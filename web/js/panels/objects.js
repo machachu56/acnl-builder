@@ -14,11 +14,12 @@ const HANDLING = {
   drifty: { label: 'Drifty', max_speed: 380, accel: 290, turn: 3.1, grip: 4 },
 };
 const CONTROLS = [['A', 'X key', 'get in · accelerate'], ['B', 'Z key', 'brake · drift in a turn · get out (stopped)'], ['Circle pad', 'arrows', 'steer towards · pull back to reverse'],
-  ['Y', 'A key', 'horn'], ['X', 'S key', 'lights (on by themselves at night)']];
+  ['Y', 'A key', 'horn · hold next to a parked car: back into the pockets'], ['X', 'S key', 'lights (on by themselves at night)']];
 
 export function newVehicle(P, name, car = 'sports_car') {
   return { id: uid('car', P.objects), name: name || 'My car', kind: 'vehicle', enabled: true, model: { car, color: 0 },
-    start: { near: 'house', dx: 3, dz: 1 }, yaw: 0, scale: 1.0, sound: 'sporty', handling: { ...strip(HANDLING.balanced) } };
+    start: { near: 'house', dx: 3, dz: 1 }, yaw: 0, scale: 1.0, sound: 'sporty', handling: { ...strip(HANDLING.balanced) },
+    appear: 'item', give: { pockets: false, mail: true } };
 }
 function strip(hd) { const { label, ...rest } = hd; return rest; }
 
@@ -75,7 +76,7 @@ export function render(root) {
       const parts = [];
       for (const p of r.parts) parts.push({ ...p, image: await dataImage(p.atlas) });
       viewer.setParts(parts);
-      if (viewer._first) { const [mn, mx] = boundsOf(parts); viewer.frame(mn, mx); viewer.dist *= 1.1; viewer.yaw = -0.6; viewer.pitch = 0.42; viewer._first = false; }
+      if (viewer._first) { const [mn, mx] = boundsOf(parts); viewer.frame(mn, mx); viewer.dist *= 1.7; viewer.yaw = -0.6; viewer.pitch = 0.42; viewer._first = false; }
       const [L, H, W] = r.size;
       info.textContent = (L / 32).toFixed(1) + ' × ' + (W / 32).toFixed(1) + ' tiles · ' + r.triangles + ' triangles';
     } catch (e) { toast('Preview failed: ' + e.message, 'error'); }
@@ -101,6 +102,13 @@ export function render(root) {
     const presetSel = select([['', 'Custom'], ...Object.entries(HANDLING).map(([key, v]) => [key, v.label])], preset ? preset[0] : '', (v) => {
       if (!v) return; o.handling = strip(HANDLING[v]); changed(); drawRight();
     });
+    o.appear = o.appear || 'item';
+    o.give = o.give || { pockets: false, mail: true };
+    const itemCar = o.appear === 'item' && car.item;
+    const lt = Object.assign({}, k.letter, o.letter || {});
+    const setLetter = (key, v) => { o.letter = Object.assign({}, o.letter || {}, { [key]: v }); changed(); };
+    const body = h('textarea', { rows: 6, style: { fontFamily: 'ui-monospace, monospace', fontSize: '12px' } }, lt.body);
+    body.addEventListener('input', () => setLetter('body', body.value));
     const startHint = o.start.near === 'tiles' ? 'Tile x, z from the top-left corner of the map (a town is 112 × 96 tiles; the playable part starts at 16, 16).' : 'Tiles east (x) and south (z) of it; the car moves to the nearest free flat spot.';
     mount(right, h('div', { class: 'pad', style: { padding: '14px', display: 'flex', flexDirection: 'column', gap: '14px' } },
       h('div', { class: 'card' }, h('h3', {}, 'Vehicle'), h('div', { class: 'col' },
@@ -111,7 +119,18 @@ export function render(root) {
           h('button', { class: 'small' + ((o.model.color || 0) === i ? ' primary' : ''), onclick: () => { o.model.color = i; ch(); drawRight(); preview(); } }, name)))) : null,
         field('Size', slider(o.scale || 1, 0.7, 1.6, 0.05, (v) => { o.scale = v; changed(); preview(); }), 'Bigger cars are harder to park between trees.'),
         field('Engine sound', select(k.sounds, o.sound || 'sporty', (v) => { o.sound = v; changed(); })))),
-      h('div', { class: 'card' }, h('h3', {}, 'Where it starts'), h('div', { class: 'col' },
+      h('div', { class: 'card' }, h('h3', {}, 'How it appears'), h('div', { class: 'col' },
+        field('In town', select([['item', car.item ? 'From its item: drop the ' + car.label.split(' (')[0].toLowerCase() + ' outside' : 'From its item (this model has none)'], ['parked', 'Parked in town from the start']], o.appear, (v) => { o.appear = v; ch(); drawRight(); })),
+        itemCar ? h('div', { class: 'dim', style: { fontSize: '11px' } }, 'The game\u2019s own furniture item (', h('span', { class: 'kbd' }, '0x' + car.item.toString(16)), '): dropped on the ground outside, it becomes the car. Hold Y next to the parked car to put it back into the pockets.') : null,
+        itemCar ? field('The first time', h('div', { class: 'col', style: { gap: '4px' } },
+          checkbox(o.give.pockets, (v) => { o.give.pockets = v; changed(); drawRight(); }, 'Put the item in the pockets'),
+          checkbox(o.give.mail, (v) => { o.give.mail = v; changed(); drawRight(); }, o.give.pockets ? 'Send a letter explaining it' : 'Send it by letter')),
+          'Once per town. It can also be bought or found like any furniture.') : null,
+        itemCar && o.give.mail ? h('div', { class: 'col' },
+          field('Letter header', textInput(lt.header, (v) => setLetter('header', v), { maxlength: 32 }), 'Your name goes where \u201c ,\u201d is: \u201cTo ,\u201d reads \u201cTo Claude,\u201d'),
+          field('Letter', body, 'About 27 characters a line, 6 lines show at once' + (o.give.pockets ? '' : '. The item comes attached.')),
+          field('Signed', textInput(lt.footer, (v) => setLetter('footer', v), { maxlength: 32 }))) : null)),
+      itemCar ? null : h('div', { class: 'card' }, h('h3', {}, 'Where it starts'), h('div', { class: 'col' },
         field('Parked', select(k.starts, o.start.near, (v) => { o.start.near = v; if (v === 'tiles') { o.start.dx = 56; o.start.dz = 48; } else { o.start.dx = 3; o.start.dz = 1; } changed(); drawRight(); })),
         h('div', { class: 'grid2' },
           field(o.start.near === 'tiles' ? 'Tile x' : 'East (tiles)', numInput(o.start.dx, (v) => { o.start.dx = v; changed(); }, { step: 1 })),

@@ -4,6 +4,9 @@
    parked in the town. Next to it an "A" bubble shows: A gets in (the player hops into the seat and the game stops seeing
    the controls). The circle pad steers towards where it points and gives throttle (pull back to reverse), A accelerates,
    B brakes (hard turns with B drift; at a stop B gets out), Y honks, X switches the lights (on by themselves at night).
+   A car can come from its furniture item (item = ...): dropped on the ground outside, the item becomes the car, and
+   holding Y next to the parked car turns it back into the item in the pockets. The first time in a town the item is
+   given once (in the pockets and/or attached to a letter).
    It collides with the town (the game's own ground heights and kinds, its trees and rocks), spins and steers its wheels,
    leans on slopes and in turns, throws dust, sounds its engine and remembers where it was parked.
 
@@ -32,6 +35,8 @@ struct Config {
     int start_kind;                          /* 0: tiles x, z; 1: next to the player's house; 2: town hall; 3: station */
     float start_x, start_z, start_yaw;
     uint32_t start_rev;                      /* changes with the start: a spot saved for another start is forgotten */
+    uint32_t item;                           /* furniture item the car comes from (0: always parked in town) */
+    bool give_pockets, give_mail;            /* the first time in a town, give the item: in the pockets, by letter */
 };
 
 struct Puff { int prop; float x, y, z, vx, vy, vz, age, life, size; bool on; };
@@ -54,6 +59,16 @@ struct Vehicle {
     int next_puff;
     float puff_acc;
     int place_wait;
+    int ground;                              /* (item cars) town item slot of its item, kept under the parked car; -1 */
+    uint32_t carried;                        /* (item cars) its item while driven (lifted off the ground), 0 */
+    int put_wait;                            /* frames until a lifted item goes back under the parked car (0: none) */
+    float hold;                              /* how long Y has been held next to it (putting it away) */
+    float pop;                               /* appearing / disappearing: 0 .. 1 (scale of the model) */
+    int pop_dir;                             /* +1 appearing, -1 going back into the pockets, 0 still */
+    int scan_wait;
+    bool gift_checked;
+    uint16_t footer0;                        /* first character of its letter's footer (to recognise the letter) */
+    int snd_poof;
 };
 
 Vehicle g_v[MAX_VEHICLES];
@@ -148,6 +163,9 @@ void set_key(Config &c, const char *key, const char *val) {
         if (parse_floats(p, f, 2) == 2) { c.start_x = f[0]; c.start_z = f[1]; }
     } else if (!strcmp(key, "yaw")) c.start_yaw = parse_float(val, nullptr) * PI / 180.0f;
     else if (!strcmp(key, "start_rev")) c.start_rev = (uint32_t)acnl_strtol(val, nullptr, 0);
+    else if (!strcmp(key, "item")) c.item = (uint32_t)acnl_strtol(val, nullptr, 0);
+    else if (!strcmp(key, "give_pockets")) c.give_pockets = acnl_strtol(val, nullptr, 0) != 0;
+    else if (!strcmp(key, "give_mail")) c.give_mail = acnl_strtol(val, nullptr, 0) != 0;
 }
 
 /* ------------------------------------------------------------------ geometry */
@@ -255,14 +273,20 @@ void load_assets(Vehicle &v) {
     file_path(v, "dust.apm", path, sizeof path);
     v.dust_mesh = acnl_prop_mesh(path);
     for (int i = 0; i < MAX_PUFFS; i++) { v.puffs[i].prop = acnl_prop_new(v.dust_mesh); v.puffs[i].on = false; }
-    static const char *names[6] = {"engine.wav", "start.wav", "horn.wav", "door.wav", "skid.wav", "stop.wav"};
-    int *ids[6] = {&v.snd_engine, &v.snd_start, &v.snd_horn, &v.snd_door, &v.snd_skid, &v.snd_stop};
-    for (int i = 0; i < 6; i++) { file_path(v, names[i], path, sizeof path); *ids[i] = acnl_sound_load(path); }
+    static const char *names[7] = {"engine.wav", "start.wav", "horn.wav", "door.wav", "skid.wav", "stop.wav", "poof.wav"};
+    int *ids[7] = {&v.snd_engine, &v.snd_start, &v.snd_horn, &v.snd_door, &v.snd_skid, &v.snd_stop, &v.snd_poof};
+    for (int i = 0; i < 7; i++) { file_path(v, names[i], path, sizeof path); *ids[i] = acnl_sound_load(path); }
+    v.pop = 1;
+    v.ground = -1;
+    static uint8_t letter[0x42 + 0x182 + 0x42 + 1];
+    file_path(v, "letter.bin", path, sizeof path);
+    if (acnl_read_file(path, letter, sizeof letter) == (int)sizeof letter) v.footer0 = (uint16_t)(letter[0x1C4] | letter[0x1C5] << 8);
     v.v_engine = v.v_skid = -1;
 }
 
-struct Saved { uint32_t magic; float x, z, head; uint32_t rev; };
-const uint32_t SPOT_MAGIC = 0x48455632u;
+/* the exact spot (the town keeps only the tile of an item car's item: `ground`, its town item slot, or -1) */
+struct Saved { uint32_t magic; float x, z, head; uint32_t rev; int32_t ground; };
+const uint32_t SPOT_MAGIC = 0x48455634u;
 
 void spot_name(const Vehicle &v, char *name, int cap) {
     copy_str(name, (uint32_t)cap - 8, "veh_");
@@ -275,22 +299,307 @@ void spot_name(const Vehicle &v, char *name, int cap) {
 void save_spot(const Vehicle &v) {
     char name[48];
     spot_name(v, name, sizeof name);
-    Saved s = {SPOT_MAGIC, v.x, v.z, v.head, v.c.start_rev};
+    Saved s = {SPOT_MAGIC, v.x, v.z, v.head, v.c.start_rev, v.ground};
     acnl_storage_write(name, &s, sizeof s);
 }
 
-bool load_spot(Vehicle &v) {
+bool load_spot(Vehicle &v, int *ground = nullptr) {
     char name[48];
     spot_name(v, name, sizeof name);
     Saved s;
     if (acnl_storage_read(name, &s, sizeof s) != (int)sizeof s || s.magic != SPOT_MAGIC || s.rev != v.c.start_rev) return false;
     v.x = s.x; v.z = s.z; v.head = s.head;
+    if (ground) *ground = s.ground;
     return true;
+}
+
+/* ------------------------------------------------------------------ items: the pockets, the letter, the ground */
+
+const uint32_t CUR_PLAYER = 0xaae14c;        /* -> the current player's data in the save (what 0x2fb894 returns) */
+const uint32_t PLAYERS = 0xA0, PLAYER_SIZE = 0x9F10, PLAYER_ID = 0x55A6, POCKETS = 0x6BD0;
+const uint32_t MAILBOX = 0x73958, LETTER_SIZE = 0x280;     /* the first player's 10 letters */
+const uint32_t EMPTY_ITEM = 0x7FFE;
+
+/* the current player's data and index (0..3); 0 when there is none */
+uint32_t cur_player(int *index) {
+    uint32_t save = acnl_rd32(field::SAVE_PTR_), p = acnl_rd32(CUR_PLAYER);
+    if (save < 0x100000 || p < save + PLAYERS || p >= save + PLAYERS + 4 * PLAYER_SIZE || (p - save - PLAYERS) % PLAYER_SIZE) return 0;
+    if (index) *index = (int)((p - save - PLAYERS) / PLAYER_SIZE);
+    return p;
+}
+
+/* put an item in the first free pocket; false when they are full */
+bool pocket_item(uint32_t item) {
+    uint32_t p = cur_player(nullptr);
+    if (!p) return false;
+    for (int i = 0; i < 16; i++) {
+        uint32_t a = p + POCKETS + i * 4;
+        if ((acnl_rd32(a) & 0xFFFF) == EMPTY_ITEM) { acnl_wr32(a, item); return true; }
+    }
+    return false;
+}
+
+/* a letter in the current player's mailbox (header, body, footer, name position from letter.bin), with an item or none */
+bool send_letter(const Vehicle &v, uint32_t item) {
+    int index = 0;
+    uint32_t p = cur_player(&index), save = acnl_rd32(field::SAVE_PTR_);
+    if (!p) return false;
+    if (index != 0) { acnl_log("vehicles: letters only reach the town's first resident so far"); return false; }
+    static uint8_t text[0x42 + 0x182 + 0x42 + 1];
+    char path[96];
+    file_path(v, "letter.bin", path, sizeof path);
+    if (acnl_read_file(path, text, sizeof text) != (int)sizeof text) return false;
+    for (int slot = 0; slot < 10; slot++) {
+        uint32_t L = save + MAILBOX + slot * LETTER_SIZE;
+        if (acnl_rd16(L) != 0 || acnl_rd8(L + 0x30) != 0) continue;          /* taken */
+        static uint8_t z[0x278];
+        memset(z, 0, sizeof z);
+        acnl_write(L, z, sizeof z);
+        static uint8_t id[0x2E];
+        acnl_read(p + PLAYER_ID, id, sizeof id);
+        acnl_write(L, id, sizeof id);                  /* to: this player */
+        acnl_wr8(L + 0x30, 1);                         /* (receiver: a player) */
+        acnl_wr8(L + 0x64, 5);                         /* from: a special sender, as the game's own gift letters */
+        acnl_write(L + 0x68, text, 0x42);
+        acnl_write(L + 0xAA, text + 0x42, 0x182);
+        acnl_write(L + 0x22C, text + 0x42 + 0x182, 0x42);
+        acnl_wr8(L + 0x26E, text[sizeof text - 1]);    /* where the receiver's name goes in the header */
+        acnl_wr8(L + 0x26F, 0x42);                     /* stationery */
+        acnl_wr8(L + 0x270, 0x01);                     /* received, not opened (opened letters have 0x08 too) */
+        acnl_wr8(L + 0x271, 0x1E);
+        acnl_wr32(L + 0x274, item);
+        acnl_log("vehicles: letter for %s in mailbox slot %d (item %#x)", v.c.id, slot, (unsigned)item);
+        return true;
+    }
+    acnl_log("vehicles: the mailbox is full: no letter for %s", v.c.id);
+    return false;
+}
+
+/* ---- the town's items (save + 0x534D8: 20 acres x 256 u32), one slot per tile of the playable 5 x 4 acres */
+const int TOWN_SLOTS = 20 * 256;
+uint32_t g_items[TOWN_SLOTS];
+
+bool read_items() {
+    uint32_t save = acnl_rd32(field::SAVE_PTR_);
+    return save >= 0x100000 && acnl_read(save + field::TOWN_ITEMS, g_items, sizeof g_items) == 0;
+}
+void write_item(int slot, uint32_t item) {
+    uint32_t save = acnl_rd32(field::SAVE_PTR_);
+    if (save >= 0x100000 && slot >= 0 && slot < TOWN_SLOTS) { acnl_wr32(save + field::TOWN_ITEMS + (uint32_t)slot * 4, item); g_items[slot] = item; }
+}
+void slot_tile(int slot, int *tx, int *tz) { int acre = slot / 256, t = slot % 256; *tx = (acre % 5 + 1) * 16 + t % 16; *tz = (acre / 5 + 1) * 16 + t / 16; }
+int tile_slot(int tx, int tz) {
+    int ax = tx / 16 - 1, az = tz / 16 - 1;
+    if (tx < 0 || tz < 0 || ax < 0 || az < 0 || ax > 4 || az > 3) return -1;
+    return (az * 5 + ax) * 256 + (tz % 16) * 16 + tx % 16;
+}
+bool slot_has(int slot, uint32_t item) { return slot >= 0 && slot < TOWN_SLOTS && (g_items[slot] & 0xFFFF) == item; }
+
+/* The ground objects the game draws are built when an area loads: a direct write to the save's items shows only after
+   the area loads again. Taking an item off the ground therefore goes through the game (below); putting the car's item on
+   the ground is always under the car, where its leaf is hidden anyway, so a direct write is enough. (Vapecord's PlaceItem,
+   0x59E1EC here, puts it down with the game's falling-item animation: a leaf seen dropping beside the car.) */
+uint32_t g_item_bufs = 0;
+int g_item_buf_next = 0;
+
+/* taking an item off the ground is Vapecord's TrampleAtWorldCoords: set(x, z, 0, room, Item *) writes the tile (the call
+   chain the game itself used to clear a tile, seen with a write watch: 0x168890 -> 0x2fca24 -> 0x57ad38), then
+   refresh(x, z, 1) updates the ground objects (fgobj). From the Vapecord plugin (github.com/RedShyGuy/Vapecord-ACNL-Plugin):
+   its EUR WA 0x168E40 / 0x59E18C are 0x5B0 / 0xAD8 lower in this build. Room 0xA5: outdoors. Runs right after this hook. */
+const uint32_t FN_TRAMPLE_SET = 0x168890, FN_TRAMPLE_SHOW = 0x59D6B4, ROOM_OUTDOORS = 0xA5;
+/* take the item off a tile, the game's way (a direct write when it cannot be asked) */
+void ground_take(int slot) {
+    if (slot < 0 || slot >= TOWN_SLOTS) return;
+    if (!g_item_bufs) g_item_bufs = acnl_alloc(8 * 12, 4);     /* (each queued call needs its own item until it runs) */
+    int tx, tz;
+    slot_tile(slot, &tx, &tz);
+    uint32_t b = g_item_bufs ? g_item_bufs + (uint32_t)(g_item_buf_next++ & 7) * 12 : 0;
+    if (b) acnl_wr32(b, EMPTY_ITEM);
+    uint32_t set[5] = {(uint32_t)tx, (uint32_t)tz, 0, ROOM_OUTDOORS, b}, show[3] = {(uint32_t)tx, (uint32_t)tz, 1};
+    if (!b || acnl_call(0, FN_TRAMPLE_SET, set, 5) != 0) { write_item(slot, EMPTY_ITEM); return; }
+    acnl_call(0, FN_TRAMPLE_SHOW, show, 3);
+    g_items[slot] = EMPTY_ITEM;
+}
+void ground_put(int slot, uint32_t item) {          /* (only ever under the car: see above) */
+    if (slot >= 0 && slot < TOWN_SLOTS) write_item(slot, item);
+}
+/* the first slot holding the item (from g_items, read_items() first), -1 */
+int find_item(uint32_t item) { for (int i = 0; i < TOWN_SLOTS; i++) if ((g_items[i] & 0xFFFF) == item) return i; return -1; }
+
+/* the car's item goes under the car: to the tile of its middle, or another free tile it covers; stays put otherwise */
+void settle_item(Vehicle &v) {
+    if (v.ground < 0 || !read_items() || !slot_has(v.ground, v.c.item)) return;
+    int ctx = (int)(v.x / 32), ctz = (int)(v.z / 32);
+    static const int order[9][2] = {{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {-1, -1}, {1, -1}, {-1, 1}};
+    for (int k = 0; k < 9; k++) {
+        int slot = tile_slot(ctx + order[k][0], ctz + order[k][1]);
+        if (slot == v.ground) break;                           /* already under it */
+        if (slot < 0 || (g_items[slot] & 0xFFFF) != EMPTY_ITEM) continue;
+        float lx, lz;
+        to_model(v, (ctx + order[k][0]) * 32.0f + 16, (ctz + order[k][1]) * 32.0f + 16, &lx, &lz);
+        if (absf(lx) > v.c.length * 0.5f - 4 || absf(lz) > v.c.width * 0.5f - 4) continue;    /* not hidden by the car */
+        uint32_t it = g_items[v.ground];
+        ground_take(v.ground);
+        ground_put(slot, it);
+        v.ground = slot;
+        v.scan_wait = 30;                                     /* (the game takes it off after this hook) */
+        break;
+    }
+    save_spot(v);
+}
+
+/* a free tile for the car's item when it parks: under it (its middle first), else right next to it; -1 */
+int park_slot(const Vehicle &v) {
+    if (!read_items()) return -1;
+    int ctx = (int)(v.x / 32), ctz = (int)(v.z / 32), best = -1;
+    float best_d = 1e9f;
+    for (int dz = -2; dz <= 2; dz++)
+        for (int dx = -2; dx <= 2; dx++) {
+            int slot = tile_slot(ctx + dx, ctz + dz);
+            if (slot < 0 || (g_items[slot] & 0xFFFF) != EMPTY_ITEM) continue;
+            float lx, lz;
+            to_model(v, (ctx + dx) * 32.0f + 16, (ctz + dz) * 32.0f + 16, &lx, &lz);
+            float ox = maxf(absf(lx) - (v.c.length * 0.5f - 4), 0), oz = maxf(absf(lz) - (v.c.width * 0.5f - 4), 0);
+            float d = ox + oz + (absf(lx) + absf(lz)) * 0.001f;          /* 0 under the car; the middle wins ties */
+            if (ox + oz > 34) continue;                                   /* (not further than a tile from it) */
+            if (d < best_d) { best_d = d; best = slot; }
+        }
+    return best;
+}
+
+/* getting in: its item comes off the ground with it (the game's way: no leaf is left where it stood) */
+void lift_item(Vehicle &v) {
+    if (!v.c.item || v.carried || !read_items() || !slot_has(v.ground, v.c.item)) return;
+    v.carried = g_items[v.ground];
+    ground_take(v.ground);
+    v.ground = -1;
+    save_spot(v);
+}
+
+/* parking: its item goes back on the ground, under it (false: no free tile around it) */
+bool put_down_item(Vehicle &v) {
+    if (!v.carried) return true;
+    int slot = park_slot(v);
+    if (slot < 0) return false;
+    ground_put(slot, v.carried);
+    v.ground = slot;
+    v.carried = 0;
+    v.scan_wait = 30;                                         /* (the game makes the change after this hook) */
+    save_spot(v);
+    return true;
+}
+
+/* does the current player's save hold the item: pockets, mailbox (attached or our letter), the town's ground */
+bool owns_item(const Vehicle &v) {
+    int index = 0;
+    uint32_t p = cur_player(&index), save = acnl_rd32(field::SAVE_PTR_);
+    if (!p) return false;
+    for (int i = 0; i < 16; i++) if ((acnl_rd32(p + POCKETS + i * 4) & 0xFFFF) == v.c.item) return true;
+    if (index == 0)
+        for (int slot = 0; slot < 10; slot++) {
+            uint32_t L = save + MAILBOX + slot * LETTER_SIZE;
+            if (acnl_rd16(L) == 0) continue;
+            if ((acnl_rd32(L + 0x274) & 0xFFFF) == v.c.item) return true;
+            if (acnl_rd8(L + 0x64) == 5 && acnl_rd8(L + 0x26F) == 0x42 && acnl_rd8(L + 0x271) == 0x1E && acnl_rd32(L + 0x274) == EMPTY_ITEM &&
+                v.footer0 && acnl_rd16(L + 0x22C) == v.footer0) return true;       /* our letter (it came without the item) */
+        }
+    return read_items() && find_item(v.c.item) >= 0;
+}
+
+/* the first time the mod runs in a town (and for this player): give the item, in the pockets and/or by letter. The
+   record stays "pending" until a later session finds the gift in the save (the game may not have been saved). */
+struct Gift { uint32_t magic; uint16_t town, player; uint32_t state; };      /* state 0: pending, 1: in the save */
+const uint32_t GIFT_MAGIC = 0x47494632u, GIFT_MAGIC_OLD = 0x47494631u;
+void give_once(Vehicle &v) {
+    uint32_t p = cur_player(nullptr);
+    if (!p || !v.c.item || (!v.c.give_pockets && !v.c.give_mail)) return;
+    Gift g = {GIFT_MAGIC, acnl_rd16(p + PLAYER_ID + 0x14), acnl_rd16(p + PLAYER_ID), 0};
+    char name[48];
+    copy_str(name, 32, "gift_");
+    int n = (int)strlen(name);
+    copy_str(name + n, (uint32_t)(sizeof name - n - 5), v.c.id);
+    n = (int)strlen(name);
+    memcpy(name + n, ".bin", 5);
+    Gift old;
+    memset(&old, 0, sizeof old);
+    int got = acnl_storage_read(name, &old, sizeof old);
+    bool known = got >= 8 && (old.magic == GIFT_MAGIC || old.magic == GIFT_MAGIC_OLD) && old.town == g.town && old.player == g.player;
+    if (known && old.magic == GIFT_MAGIC && old.state == 1) return;
+    if (known && owns_item(v)) {                      /* given in an earlier session, and the game saved it */
+        g.state = 1;
+        acnl_storage_write(name, &g, sizeof g);
+        return;
+    }
+    if (known) acnl_log("vehicles: %s's gift is not in this save (the game was not saved): given again", v.c.id);
+    bool pocketed = v.c.give_pockets && pocket_item(v.c.item);
+    if (v.c.give_pockets) acnl_log(pocketed ? "vehicles: %s's item is in the pockets" : "vehicles: the pockets are full: %s's item comes by letter", v.c.id);
+    if (v.c.give_mail || !pocketed) send_letter(v, pocketed ? EMPTY_ITEM : v.c.item);
+    acnl_storage_write(name, &g, sizeof g);
+}
+
+/* a free spot for the car within `rings` tiles of (x, z), facing `head` (or a quarter turn from it); moves the car there */
+bool free_spot_near(Vehicle &v, float bx, float bz, float head, int rings) {
+    for (int ring = 0; ring <= rings; ring++)
+        for (int dz = -ring; dz <= ring; dz++)
+            for (int dx = -ring; dx <= ring; dx++) {
+                if (dx > -ring && dx < ring && dz > -ring && dz < ring) continue;
+                for (int turn = 0; turn < 4; turn++) {
+                    float hd = wrap(head + (float)turn * PI / 2), x = bx + dx * 32, z = bz + dz * 32, h, h2;
+                    if (!fits(v, x, z, hd, 0, &h, false) || !fits(v, x, z, hd, h, &h2, true)) continue;
+                    v.x = x; v.z = z; v.y = h; v.head = hd;
+                    return true;
+                }
+            }
+    return false;
+}
+
+/* an item car stands where its item lies on the town's ground: where it was parked (silently), or where the item was
+   just dropped (it pops up, the item tucked under it). True when it appeared. */
+bool watch_ground(Vehicle &v, uint32_t player) {
+    if (v.carried || !read_items()) return false;            /* (its item is lifted: it is not on the ground) */
+    if (v.placed) {
+        if (slot_has(v.ground, v.c.item)) return false;
+        int other = find_item(v.c.item);
+        if (other < 0) { v.placed = false; v.ground = -1; acnl_log("vehicles: %s's item left the ground: the car is gone", v.c.id); return false; }
+        v.placed = false;                                       /* its item is somewhere else now: it goes there */
+    }
+    int slot = find_item(v.c.item);
+    if (slot < 0) return false;
+    int saved = -1;
+    float h;
+    if (load_spot(v, &saved) && saved == slot && fits(v, v.x, v.z, v.head, 0, &h, false)) {
+        v.y = h;
+        v.placed = true;
+        v.ground = slot;
+        acnl_log("vehicles: %s parked where it was left (%.0f, %.0f)", v.c.id, v.x, v.z);
+        return false;
+    }
+    int tx, tz;
+    slot_tile(slot, &tx, &tz);
+    float head = PI / 2 - (float)acnl_rd16(player + 0x34) / 65536.0f * TAU;    /* the way the player faces */
+    static int last_fail = -1;
+    if (!free_spot_near(v, tx * 32.0f + 16, tz * 32.0f + 16, head, 2)) {
+        if (last_fail != slot) acnl_log("vehicles: no room for %s around tile %d, %d: the item stays", v.c.id, tx, tz);
+        last_fail = slot;
+        return false;
+    }
+    v.placed = true;
+    v.ground = slot;
+    v.vx = v.vz = v.vf = v.vl = v.pitch = v.roll = 0;
+    acnl_log("vehicles: %s appears at tile %d, %d (its item was dropped)", v.c.id, tx, tz);
+    if (saved != slot) {                                      /* just dropped: the game's leaf goes, the item goes back unseen */
+        lift_item(v);
+        v.put_wait = 6;
+        return true;
+    }
+    settle_item(v);
+    return false;
 }
 
 /* where the vehicle stands when the town is first there: its saved spot, or its configured start moved to free ground */
 void place(Vehicle &v, const float player[3]) {
     float h;
+    if (v.c.item) return;                             /* an item car stands where its item lies (watch_ground) */
     if (load_spot(v) && fits(v, v.x, v.z, v.head, 0, &h, false)) {
         v.y = h;
         v.placed = true;
@@ -339,6 +648,15 @@ void place_model(Vehicle &v, bool visible, bool near) {
     m_translate(v.x, v.y + v.bob, v.z, t);
     m_mul(t, r, base);
     m_mul(base, lean, m);
+    if (v.pop < 1) {                                  /* popping in or out: scaled about its base */
+        float k = v.pop, sc = v.pop_dir >= 0 ? k * (1.0f + 0.25f * sinf(k * PI)) : k;
+        for (int row = 0; row < 3; row++) for (int col = 0; col < 3; col++) m[row * 4 + col] *= sc;
+    }
+    if (v.hold > 0) {                                 /* Y held: it shrinks and shakes as it goes back into the pockets */
+        float k = minf(v.hold / 0.6f, 1.0f), sc = 1.0f - 0.18f * k, sh = 0.8f * k * sinf(v.t * 70);
+        for (int row = 0; row < 3; row++) for (int col = 0; col < 3; col++) m[row * 4 + col] *= sc;
+        m[3] += sh;
+    }
     acnl_prop_place(v.prop, m, visible);
     /* wheels: spin about the axle (z), the front ones steer about y, both about the wheel's centre */
     for (int i = 0; i < v.c.nwheels; i++) {
@@ -413,6 +731,26 @@ void puffs_tick(Vehicle &v, float dt, bool visible) {
         acnl_prop_tint(p.prop, tint);
         acnl_prop_place(p.prop, m, 1);
     }
+}
+
+/* a ring of puffs all around the car (appearing, going back into the pockets) */
+void burst(Vehicle &v) {
+    for (int k = 0; k < 16; k++) {
+        float a = (float)k / 16 * TAU, s, c;
+        sincos(a, &s, &c);
+        Puff &p = v.puffs[v.next_puff];
+        v.next_puff = (v.next_puff + 1) % MAX_PUFFS;
+        to_world(v, c * v.c.length * 0.45f, s * v.c.width * 0.45f, &p.x, &p.z);
+        p.y = v.y + 4 + (float)(k % 3) * 5;
+        p.vx = (p.x - v.x) * 1.6f;
+        p.vz = (p.z - v.z) * 1.6f;
+        p.vy = 18 + (float)(k % 4) * 6;
+        p.age = 0;
+        p.life = 0.7f + (float)(k % 5) * 0.08f;
+        p.size = 1.1f;
+        p.on = true;
+    }
+    if (v.snd_poof >= 0) acnl_sound_play(v.snd_poof, 0.8f, 1.0f, 0, 0);
 }
 
 /* ------------------------------------------------------------------ the player */
@@ -594,13 +932,26 @@ void tick(uint32_t player, uint32_t buttons_unused) {
     for (int i = 0; i < g_nv; i++) {
         Vehicle &v = g_v[i];
         v.t += dt;
+        if (out && v.c.item && !v.gift_checked) { v.gift_checked = true; give_once(v); }
+        if (out && v.c.item && v.put_wait > 0 && g_driver != i && --v.put_wait == 0) put_down_item(v);    /* (after the game took it) */
+        if (out && v.c.item && g_driver != i && v.pop_dir == 0 && v.scan_wait-- <= 0) {    /* an item car: where its item lies */
+            v.scan_wait = 15;
+            if (watch_ground(v, player)) { v.pop = 0; v.pop_dir = 1; burst(v); }
+        }
+        if (out && !v.c.item && !v.placed && v.place_wait-- <= 0) { place(v, pp); v.place_wait = 90; }    /* (a long search) */
+        if (v.pop_dir) {                                    /* popping in or out of existence */
+            v.pop += (float)v.pop_dir * dt / 0.35f;
+            if (v.pop >= 1) { v.pop = 1; v.pop_dir = 0; }
+            else if (v.pop <= 0) { v.pop = 1; v.pop_dir = 0; v.placed = false; }
+        }
         bool visible = out && mtx && v.placed;
-        if (out && !v.placed && (v.place_wait-- <= 0)) { place(v, pp); v.place_wait = 90; }    /* (a long search: not every frame) */
         if (!out && g_driver == i) {                        /* the scene changed under the car (a cut-scene...): park here */
             v.driving = v.entering = v.exiting = v.started = false;
             g_driver = -1;
             acnl_pad_override(0, 0, 0);
-            save_spot(v);
+            if (v.c.item && !put_down_item(v)) {           /* nowhere to leave its item: it goes back into the pockets */
+                if (pocket_item(v.c.item)) { v.carried = 0; v.placed = false; save_spot(v); }
+            } else if (!v.c.item) save_spot(v);
         }
         if (!visible) { static const float zero[12] = {0}; acnl_prop_place(v.prop, zero, 0); puffs_tick(v, dt, false); sounds_tick(v); continue; }
         float dx = pp[0] - v.x, dz = pp[2] - v.z;
@@ -609,13 +960,35 @@ void tick(uint32_t player, uint32_t buttons_unused) {
         near_any |= near;
         if (g_driver < 0) {
             push_player_out(v, player, pp);
-            if (near && (pressed & ACNL_BTN_A)) {             /* get in */
+            /* an item car: holding Y next to it puts it back into the pockets */
+            if (v.c.item && near && v.pop_dir == 0 && (pad.buttons & ACNL_BTN_Y)) {
+                if (v.hold >= 0) v.hold += dt;
+                if (v.hold >= 0.6f) {
+                    if (pocket_item(v.c.item)) {                /* the item in the pockets, off the ground under the car */
+                        if (read_items() && slot_has(v.ground, v.c.item)) ground_take(v.ground);
+                        v.ground = -1;
+                        v.carried = 0;                          /* (a lifted item is the one now in the pockets) */
+                        v.put_wait = 0;
+                        v.pop_dir = -1; v.pop = 1;
+                        v.hold = 0;
+                        burst(v);
+                        save_spot(v);
+                        acnl_log("vehicles: %s is back in the pockets", v.c.id);
+                    } else {
+                        v.hold = -1;                        /* (until Y is let go) */
+                        acnl_sound_play(v.snd_door, 0.6f, 0.6f, 0, 0);
+                        acnl_log("vehicles: the pockets are full: %s stays", v.c.id);
+                    }
+                }
+            } else v.hold = 0;
+            if (near && v.pop_dir == 0 && (pressed & ACNL_BTN_A)) {             /* get in */
                 g_driver = i;
                 v.entering = true;
                 v.anim_t = 0;
                 v.ax = pp[0]; v.az = pp[2]; v.ay = pp[1];
                 v.vx = v.vz = 0;
                 acnl_sound_play(v.snd_door, 0.8f, 1.0f, 0, 0);
+                lift_item(v);
                 acnl_log("vehicles: getting into %s", v.c.id);
             }
         }
@@ -646,7 +1019,7 @@ void tick(uint32_t player, uint32_t buttons_unused) {
                     acnl_pad_override(0, 0, 0);
                     float yaw_out = v.head;
                     put_player(player, v.bx, v.y, v.bz, yaw_out);
-                    save_spot(v);
+                    if (v.c.item) put_down_item(v); else save_spot(v);       /* (an item car's item goes under it) */
                     acnl_log("vehicles: got out of %s at %.0f, %.0f", v.c.id, v.x, v.z);
                 }
             } else if (v.driving) {
@@ -657,7 +1030,12 @@ void tick(uint32_t player, uint32_t buttons_unused) {
                 float speed = sqrtf(v.vx * v.vx + v.vz * v.vz);
                 if ((pressed & ACNL_BTN_B) && speed < 18 && v.start_t > 0.4f) {     /* get out */
                     float ex, ez;
-                    if (exit_spot(v, &ex, &ez)) {
+                    bool room = !v.c.item || !v.carried || park_slot(v) >= 0;
+                    if (!room) {
+                        acnl_sound_play(v.snd_door, 0.6f, 0.55f, 0, 0);
+                        acnl_log("vehicles: no free tile under %s for its item: move a little", v.c.id);
+                    }
+                    if (room && exit_spot(v, &ex, &ez)) {
                         v.driving = false;
                         v.started = false;
                         v.exiting = true;
@@ -676,8 +1054,8 @@ void tick(uint32_t player, uint32_t buttons_unused) {
         place_model(v, true, near);
         puffs_tick(v, dt, true);
     }
-    /* next to a car, A is for the car (the game does not pick something up or talk at the same time) */
-    if (g_driver < 0) acnl_pad_override(near_any ? ACNL_BTN_A : 0, 0, 0);
+    /* next to a car, A (and Y for an item car) is for the car: the game does not pick something up or talk at the same time */
+    if (g_driver < 0) acnl_pad_override(near_any ? (ACNL_BTN_A | ACNL_BTN_Y) : 0, 0, 0);
 }
 
 }  // namespace veh

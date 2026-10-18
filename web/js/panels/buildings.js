@@ -3,6 +3,7 @@ import { S, changed, uid } from '../state.js';
 import { h, mount, toast, select, debounce, field, textInput, numInput, colorInput, checkbox, slider, modal, prompt, confirmBox, loadImage, pickFile } from '../ui.js';
 import { Viewer, dataImage, boundsOf } from '../viewer.js';
 import { PixelEditor } from '../pixel.js';
+import * as gameb from './gamebuildings.js';
 
 export const id = 'buildings', title = 'Buildings', icon = '⌂', needsProject = true;
 const LANGS = ['en', 'es', 'fr', 'it', 'de'];
@@ -27,11 +28,21 @@ export function newInterior(P, title) {
   };
 }
 
+// two modes: the mod's own buildings, and the town's (the game's) buildings
+function modeSwitch(app) {
+  const b = (mode, label) => h('button', { class: (app.bldMode || 'mine') === mode ? 'on' : '', onclick: () => { app.bldMode = mode; app.refresh(); } }, label);
+  return h('div', { class: 'pill-row', style: { marginLeft: 'auto' } }, b('mine', 'New buildings'), b('game', 'The town\u2019s buildings'));
+}
+
 export function render(root, app) {
+  if (app.bldMode === 'game') {
+    return gameb.render(root, app, h('div', { class: 'page-head' }, h('h2', {}, 'Buildings'),
+      h('p', {}, 'The game\u2019s own buildings: move or remove them, rename them on the map, give them another interior. Repaint them in Textures.'), modeSwitch(app)));
+  }
   const P = S.project;
   const st = { sel: P.buildings[0] ? P.buildings[0].id : null, tab: 'look', winter: false, night: false, defaults: null, presets: null };
   const left = h('div', { class: 'pane' }), mid = h('div', { class: 'pane', style: { display: 'flex', flexDirection: 'column', background: '#0f1215' } }), right = h('div', { class: 'pane' });
-  mount(root, h('div', { class: 'page-head' }, h('h2', {}, 'Buildings'), h('p', {}, 'New places on the town map: their outside look, name, map icon and position. The inside is designed in Interiors.')),
+  mount(root, h('div', { class: 'page-head' }, h('h2', {}, 'Buildings'), h('p', {}, 'New places on the town map: their outside look, name, map icon and position. The inside is designed in Interiors.'), modeSwitch(app)),
     h('div', { class: 'split', style: { gridTemplateColumns: '230px minmax(380px,1fr) 400px' } }, left, mid, right));
 
   const bld = () => P.buildings.find((b) => b.id === st.sel);

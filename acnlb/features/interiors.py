@@ -95,7 +95,8 @@ def out_yaw(spec, plan, tile):
 
 
 def compile(b):
-    for bld in b.proj["buildings"]:
+    from .buildings import game_edits
+    for bld in list(b.proj["buildings"]) + game_edits(b.proj):
         if not bld.get("interior"):
             continue
         pages = reachable(b.proj, bld["interior"])

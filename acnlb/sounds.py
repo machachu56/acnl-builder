@@ -1,5 +1,5 @@
 """Sounds made by the builder (synthesized, nothing taken from anywhere): a vehicle's engine loop, starter, horn, door,
-skid and engine stop, as 16-bit mono WAV files the runtime mixes into the game's sound (plugin: acnl_sound_*).
+skid, engine stop and the "poof" of a car appearing from its item, as 16-bit mono WAV files the runtime mixes into the game's sound (plugin: acnl_sound_*).
 
 The engine loop holds a whole number of periods of its fundamental, so it loops without a click; the plugin raises its
 pitch with the speed.
@@ -142,6 +142,20 @@ def engine_stop():
     return _normalize(out, 0.6)
 
 
+def poof():
+    """a car appears (or goes back into the pockets): a soft whoosh under a rising sparkle of bells"""
+    rnd = random.Random(23)
+    n = int(0.9 * RATE)
+    noise = _lowpass([rnd.uniform(-1, 1) for _ in range(n)], 1800)
+    out = [noise[i] * math.sin(math.pi * min(1.0, i / (0.45 * RATE))) ** 2 * 0.5 for i in range(n)]
+    for k, f in enumerate((1046.5, 1318.5, 1568.0, 2093.0, 2637.0)):         # C6 E6 G6 C7 E7
+        start = int((0.05 + 0.09 * k) * RATE)
+        for i in range(start, n):
+            t = (i - start) / RATE
+            out[i] += (math.sin(2 * math.pi * f * t) + 0.3 * math.sin(2 * math.pi * 2.01 * f * t)) * math.exp(-t * 7) * 0.35
+    return _normalize(out, 0.7)
+
+
 def vehicle_sounds(style="sporty"):
     return {"engine.wav": wav(engine_loop(style)), "start.wav": wav(starter(style)), "horn.wav": wav(horn()),
-            "door.wav": wav(door()), "skid.wav": wav(skid()), "stop.wav": wav(engine_stop())}
+            "door.wav": wav(door()), "skid.wav": wav(skid()), "stop.wav": wav(engine_stop()), "poof.wav": wav(poof())}

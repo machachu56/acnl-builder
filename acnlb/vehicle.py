@@ -12,15 +12,20 @@ import struct
 
 from . import propmesh, sounds
 
-# models of the game that make good cars (path, colour textures of the remake series, default front)
+# models of the game that make good cars (path, colour textures of the remake series, default front) and the furniture
+# item of the same model: dropped outside, it becomes the car (item ID = 0x2000 + its index in /Item/Param/Item.bin)
 GAME_CARS = {
-    "sports_car": {"label": "Sports car (convertible)", "model": "/Item/Model/rmk_car_spt.bcres",
+    "sports_car": {"label": "Sports car (convertible)", "item": 0x2FDA, "model": "/Item/Model/rmk_car_spt.bcres",
                    "colors": ["/Ftr/Remake/Texture/rmk_car_spt_base_0%d.bcres" % i for i in range(1, 5)], "color_tex": "base_00",
                    "color_names": ["Red", "Blue", "Yellow", "White", "Black"], "front": -1, "seat": (8, -4, 9), "scale": 1.0},
-    "classic_car": {"label": "Classic car", "model": "/Item/Model/rmk_car_com.bcres",
+    "classic_car": {"label": "Compact car", "item": 0x2FD9, "model": "/Item/Model/rmk_car_com.bcres",
                     "colors": ["/Ftr/Remake/Texture/rmk_car_com_base_0%d.bcres" % i for i in range(1, 5)], "color_tex": "base_00",
                     "color_names": ["Silver", "Pink", "Sky blue", "Green", "Black"], "front": -1, "seat": (4, -3, 7), "scale": 1.0},
-    "kiddie_car": {"label": "Toy car", "model": "/Item/Model/int_oth_car.bcres", "colors": [], "front": -1, "seat": (0, 0, 0), "scale": 2.0},
+    "luxury_car": {"label": "Luxury car", "item": 0x303F, "model": "/Item/Model/rmk_big_car.bcres",
+                   "colors": ["/Ftr/Remake/Texture/rmk_big_car_base_0%d.bcres" % i for i in range(1, 4)], "color_tex": "base_00",
+                   "color_names": ["Black", "Ivory", "Silver", "Gold"], "front": -1, "seat": (2, -4, 8), "scale": 1.0},
+    "kiddie_car": {"label": "Miniature car (toy)", "item": 0x2DA4, "model": "/Item/Model/int_oth_car.bcres", "colors": [], "front": -1,
+                   "seat": (0, 0, 0), "scale": 2.0},
 }
 
 
@@ -65,13 +70,14 @@ def _dust_texture(size):
     return rows
 
 
-def _prompt_texture(size=48, letter="A"):
-    """the "press A" bubble shown over a vehicle the player stands next to (the game's green A button look)"""
+def _prompt_texture(size=48, letter="A", second=None):
+    """the "press A" bubble shown over a vehicle the player stands next to (the game's green A button look); with
+    `second`, a smaller grey button of that letter beside it (twice as wide)"""
     from PIL import Image, ImageDraw, ImageFont
     k = 4
-    im = Image.new("RGBA", (size * k, size * k), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
     S = size * k
+    im = Image.new("RGBA", (S * (2 if second else 1), S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
     d.ellipse((S * 0.06, S * 0.06, S * 0.94, S * 0.94), fill=(255, 255, 255, 255))
     d.ellipse((S * 0.13, S * 0.13, S * 0.87, S * 0.87), fill=(64, 178, 96, 255))
     font = None
@@ -85,8 +91,16 @@ def _prompt_texture(size=48, letter="A"):
     font = font or ImageFont.load_default()
     box = d.textbbox((0, 0), letter, font=font)
     d.text(((S - (box[2] - box[0])) / 2 - box[0], (S - (box[3] - box[1])) / 2 - box[1]), letter, font=font, fill=(255, 255, 255, 255))
-    im = im.resize((size, size), Image.LANCZOS)
-    return [[im.getpixel((x, y)) for x in range(size)] for y in range(size)]
+    if second:                                    # the smaller button, a little lower, to the right
+        cx, cy, r = S * 1.45, S * 0.58, S * 0.33
+        d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(255, 255, 255, 255))
+        d.ellipse((cx - r * 0.82, cy - r * 0.82, cx + r * 0.82, cy + r * 0.82), fill=(120, 128, 140, 255))
+        f2 = font.font_variant(size=int(S * 0.36)) if hasattr(font, "font_variant") else font
+        box = d.textbbox((0, 0), second, font=f2)
+        d.text((cx - (box[2] - box[0]) / 2 - box[0], cy - (box[3] - box[1]) / 2 - box[1]), second, font=f2, fill=(255, 255, 255, 255))
+    w = size * (2 if second else 1)
+    im = im.resize((w, size), Image.LANCZOS)
+    return [[im.getpixel((x, y)) for x in range(w)] for y in range(size)]
 
 
 def _add_texture(prop, rows, wrap=0):
@@ -105,10 +119,10 @@ def _quad_part(prop, name, tex, corners, flags, pivot=None, normal=(0, 1, 0), rg
     return len(prop.parts) - 1
 
 
-def _billboard(prop, name, tex, center, size, flags):
+def _billboard(prop, name, tex, center, size, flags, aspect=1.0):
     x, y, z = center
-    h = size / 2
-    corners = [(x - h, y + h, z), (x + h, y + h, z), (x + h, y - h, z), (x - h, y - h, z)]
+    h, w = size / 2, size * aspect / 2
+    corners = [(x - w, y + h, z), (x + w, y + h, z), (x + w, y - h, z), (x - w, y - h, z)]
     return _quad_part(prop, name, tex, corners, flags | propmesh.BILLBOARD | propmesh.UNLIT, pivot=center, normal=(0, 0, 1))
 
 
@@ -181,8 +195,9 @@ def build(spec, read_asset=None):
     corners = [(xa, y, -near), (xa, y, near), (xb, y, far), (xb, y, -far)]
     meta["beam"] = _quad_part(prop, "beam", beam, corners, propmesh.ADDITIVE | propmesh.UNLIT, pivot=(xa, y, 0))
     meta["beam_length"] = L
-    prompt = _add_texture(prop, _prompt_texture())
-    meta["prompt"] = _billboard(prop, "prompt", prompt, (0, hi[1] + 18, 0), 15, propmesh.BLENDED)
+    item = spec.get("appear", "parked") == "item"        # an item car: hold Y to put it away, shown beside A
+    prompt = _add_texture(prop, _prompt_texture(second="Y" if item else None))
+    meta["prompt"] = _billboard(prop, "prompt", prompt, (0, hi[1] + 18, 0), 15, propmesh.BLENDED, aspect=2.0 if item else 1.0)
     # the dust the wheels throw (its own prop: a pool of puffs)
     dust = propmesh.Prop("dust")
     dt = _add_texture(dust, _dust_texture(32))

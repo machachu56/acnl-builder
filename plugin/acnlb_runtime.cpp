@@ -101,6 +101,8 @@ struct Building {
     bool set_rect;
     int rect[4];
     bool hide_furniture;
+    bool game;                    /* one of the game's own buildings: its model stays, it may be moved or removed */
+    bool remove;                  /* (game) take it out of the town */
 };
 
 /* the plugin has no static constructors (no libc start-up), so every struct is plain data, zeroed, and set up here */
@@ -147,6 +149,8 @@ void set_key(Building &b, const char *key, const char *val) {
     else if (!strcmp(key, "dx")) b.dx = (int)v;
     else if (!strcmp(key, "dy")) b.dy = (int)v;
     else if (!strcmp(key, "hide_furniture")) b.hide_furniture = v != 0;
+    else if (!strcmp(key, "game")) b.game = v != 0;
+    else if (!strcmp(key, "remove")) b.remove = v != 0;
     else if (!strcmp(key, "rect")) {
         const char *p = val;
         int k = 0;
@@ -344,6 +348,29 @@ bool crowded(uint32_t blk, uint32_t id, int x, int y) {
     return false;
 }
 
+/* one of the game's buildings: taken out of the town, or moved to its tile (if it is in this town and the spot is free) */
+void edit_game_building(uint32_t blk, const Building &b) {
+    for (int i = 0; i < MAX_BUILDINGS; i++) {
+        uint32_t e = blk + 8 + i * 4;
+        if (acnl_rd16(e) != (uint16_t)b.slot) continue;
+        int ox = acnl_rd8(e + 2), oy = acnl_rd8(e + 3);
+        if (b.remove) {
+            acnl_wr16(e, EMPTY);
+            acnl_wr8(blk + 4, (uint8_t)(acnl_rd8(blk + 4) - 1));
+            acnl_log("builder: %s removed from (%02x, %02x)", b.id, ox, oy);
+            continue;
+        }
+        if (b.x < 0 || b.y < 0 || (ox == b.x && oy == b.y)) continue;
+        acnl_wr16(e, EMPTY);                          /* out of the way while its new spot is checked against the others */
+        bool taken = crowded(blk, (uint32_t)b.slot, b.x, b.y);
+        acnl_wr16(e, (uint16_t)b.slot);
+        if (taken) { acnl_log("builder: %s stays at (%02x, %02x): another building is at (%02x, %02x)", b.id, ox, oy, b.x, b.y); continue; }
+        acnl_wr8(e + 2, (uint8_t)b.x);
+        acnl_wr8(e + 3, (uint8_t)b.y);
+        acnl_log("builder: %s moved from (%02x, %02x) to (%02x, %02x)", b.id, ox, oy, b.x, b.y);
+    }
+}
+
 /* make sure the town's building list contains every building of the mod */
 void ensure_buildings() {
     uint32_t save = acnl_rd32(SAVE_PTR);
@@ -369,6 +396,7 @@ void ensure_buildings() {
     }
     for (int k = 0; k < g_nb; k++) {
         Building &b = g_b[k];
+        if (b.game) { edit_game_building(blk, b); continue; }
         if (g_trace) acnl_log("builder: ensure %s: slot %d alias %d x %d y %d dx %d dy %d npages %d", b.id, b.slot, b.alias, b.x, b.y, b.dx, b.dy, b.npages);
         int free_slot = -1;
         bool have = false;
@@ -1316,6 +1344,15 @@ extern "C" int acnl_mod_init(void) {
             return -1;
         }
         for (int j = 0; j < i; j++) if (g_b[j].slot == b.slot) { acnl_log("builder: slot %#x used twice", b.slot); return -1; }
+        if (b.game) {                              /* the game's own: its model and footprint stay; maybe another interior */
+            if (b.scene >= 0) acnl_wr8(BLD_SCENE_TABLE + b.slot, (uint8_t)b.scene);
+            for (int k = 0; k < b.npages; k++) if (load_jmp(b, b.pages[k])) any_jmp = true;
+            for (int k = 0; k < b.npages; k++) for (int l = 0; l < b.pages[k].nlinks; l++) any_links = true;
+            if (b.hide_furniture) any_hide = true;
+            acnl_log("builder: game building %s: ID %#x%s%s, interior scene %d", b.id, b.slot, b.remove ? ", removed" : "",
+                     b.x >= 0 && !b.remove ? ", moved" : "", b.scene);
+            continue;
+        }
         /* name: points the model/texture/data lookups at our RomFS files */
         uint32_t s = acnl_alloc(strlen(b.model) + 1, 4);
         acnl_write(s, b.model, strlen(b.model) + 1);
