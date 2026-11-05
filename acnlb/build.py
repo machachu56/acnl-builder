@@ -67,7 +67,7 @@ def build(proj, only=None):
 
 
 def plugin_needed(b):
-    return bool(b.cfg["buildings"] or b.cfg["events"] or b.cfg.get("hooks") or b.cfg.get("scripts") or b.cfg.get("vehicles") or b.cfg.get("furniture"))
+    return bool(b.cfg["buildings"] or b.cfg["events"] or b.cfg.get("hooks") or b.cfg.get("scripts") or b.cfg.get("vehicles") or b.cfg.get("furniture") or b.cfg.get("story"))
 
 
 # ------------------------------------------------------------------ the runtime plugin
@@ -105,7 +105,7 @@ def build_plugin(b):
             objs.append(o)
         tmp = out + ".tmp"
         cmd = [clang, "--target=wasm32", "-mcpu=mvp", "-nostdlib", "-Wl,--no-entry", "-Wl,--export=acnl_mod_init",
-               "-Wl,--gc-sections", "-Wl,--strip-all", "-Wl,-z,stack-size=32768", "-Wl,--initial-memory=262144",
+               "-Wl,--gc-sections", "-Wl,--strip-all", "-Wl,-z,stack-size=32768", "-Wl,--initial-memory=393216",
                "-o", tmp, *objs]
         r = subprocess.run(cmd, capture_output=True, text=True, env=envp)
         if r.returncode:

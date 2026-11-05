@@ -52,6 +52,7 @@ class World:
         self.seed = seed
         self.trace = []
         self.skipped = False
+        self.answer = 0
         self.hidden = False
         self.became = None
         self.placed = None
@@ -180,6 +181,7 @@ def native(prog, nid, a, w, S):
         _wr(w, a[0], n, a[1]); return None
     if nm == "reg": return w.regs[a[0] & 15]
     if nm == "set_reg": w.regs[a[0] & 15] = a[1]; w.trace.append("set_reg(%d, %d)" % (a[0] & 15, a[1])); return None
+    if nm == "answer": w.answer = a[0]; w.trace.append("answer(%d)" % a[0]); return None
     if nm == "skip_call": w.skipped = True; w.trace.append("skip_call()"); return None
     raise VMError("built-in %s is not implemented" % nm)
 

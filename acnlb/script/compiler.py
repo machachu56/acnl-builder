@@ -242,7 +242,11 @@ class Compiler:
                 a = kws[pn]
             if a is None:
                 continue
-            if pt == "building":
+            if pt == "str":
+                if not (isinstance(a, ast.Constant) and isinstance(a.value, str)):
+                    self.err(a, "%s expects text in quotes here" % pn)
+                h.s1 = self.prog.string(a.value)
+            elif pt == "building":
                 building = self.name_arg(a, "building", self.ctx.buildings)
                 h.s1 = self.prog.string(building)
             elif pt == "room":

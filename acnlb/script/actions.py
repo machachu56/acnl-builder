@@ -53,6 +53,8 @@ NATIVES = [
     N(16, "variant_off", [("name", "str")], None, "needs-test", ANY, "Switch a RomFS variant off.", ""),
     N(30, "conversation_on", [("conversation", "conversation")], None, "needs-test", ANY, "Switch on a conversation you wrote in the Events tab whose scope is “only when a script turns it on”: from now on the game's character says your lines. Takes effect the next time that conversation starts.", 'conversation_on("isabelle_hello")'),
     N(31, "conversation_off", [("conversation", "conversation")], None, "needs-test", ANY, "Switch that conversation off again (the game's own lines return).", 'conversation_off("isabelle_hello")'),
+    # ---- stories (Story tab): conversations that ask the scripts
+    N(33, "answer", [("case", "int")], None, "needs-test", ("talk",), "In an @on_talk handler reached by a conversation's “switch” step: the conversation goes on with this case (0 = the first). Values set with set_var() are kept per town, so a story survives quitting the game.", 'if get_var("met_marie"):\n    answer(1)'),
     # ---- actors (the people and objects the game creates when a place loads)
     N(17, "hide_actor", [], None, "needs-test", ("actor",), "In an @on_actor handler: the game does not create this actor at all (the same hook as “No exhibits”). The villager is simply not there.", "@on_actor(\"Isabelle\")\ndef not_at_work():\n    if time_between(\"22:00\", \"06:00\"):\n        hide_actor()"),
     N(18, "become", [("actor", "actor")], None, "needs-test", ("actor",), "In an @on_actor handler: create another actor in this one's place (e.g. Isabelle where Tom Nook would stand).", 'become("Isabelle")'),
@@ -85,7 +87,9 @@ TRIGGERS = {
                  "Runs each time the game is about to create this actor (a villager, a shop assistant...) in a place you are loading. This is where villagers can be hidden or swapped. With last=N it covers every profile from the first number to N (e.g. all the furniture actors)."),
     "on_spawn": ("spawn", [("actor", "actor")], [],
                  "Runs when the game spawns this actor (a villager, a shop assistant...), before it does. Use add_actor() inside to spawn ANOTHER actor at the same moment: the new one is in addition to the game's, not instead of it."),
+    "on_talk": ("talk", [("name", "str")], [],
+                "Runs when a conversation reaches a “run” or “switch” step with this name (Events tab). In a switch, answer(n) picks the case it goes on with."),
     "on_call": ("call", [("address", "addr")], [],
                 "Advanced: runs every time the game calls the function at this address, before it does. Build any new action from this."),
 }
-KIND_CODE = {"enter": 1, "leave": 2, "actor": 3, "call": 4, "room": 5, "spawn": 6}
+KIND_CODE = {"enter": 1, "leave": 2, "actor": 3, "call": 4, "room": 5, "spawn": 6, "talk": 7}

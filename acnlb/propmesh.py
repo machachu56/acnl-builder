@@ -114,35 +114,39 @@ def material_alpha_tests(data, model=0):
     return out
 
 
-def from_game_model(path, model=0, retexture=None, skip_meshes=(), pose=False):
-    """a model of the game's RomFS (e.g. "/Item/Model/rmk_car_spt.bcres") as a prop; retexture = {texture name: rows}
+def from_game_model(path, model=0, retexture=None, skip_meshes=(), pose=False, tex_file=None):
+    """a model of the game's RomFS (e.g. "/Item/Model/rmk_car_spt.bcres") as a prop; tex_file: another .bcres holding its textures
+    (town structures keep theirs in Textures/season00.bcres beside the model); retexture = {texture name: rows}
     replaces textures (remake colours...); meshes whose material name is in skip_meshes are left out; pose: vertices
     bound to bones are moved to where their bones hold them at rest (furniture made of parts: chairs, clocks...)"""
     from . import skeleton
     data = rom.read(path)
-    texs = {t.name: t for t in cgfx.textures(data)}
+    texs = {t.name: (data, t) for t in cgfx.textures(data)}
+    for tf in ([tex_file] if isinstance(tex_file, str) else tex_file or []):
+        tdata = rom.read(tf)
+        texs.update({t.name: (tdata, t) for t in cgfx.textures(tdata)})
     prop = Prop(path.rsplit("/", 1)[-1].rsplit(".", 1)[0])
     tex_index = {}
 
     def texture(name):
         if name not in tex_index:
             rows = (retexture or {}).get(name)
-            t = texs[name]
+            src, t = texs[name]
             if rows is None:
-                rows = texfmt.decode_texture(data, t)
+                rows = texfmt.decode_texture(src, t)
             rows = [[tuple(int(c) for c in px) for px in r] for r in rows]
             tex_index[name] = len(prop.textures)
             prop.textures.append((len(rows[0]), len(rows), rows, 1, 1))
         return tex_index[name]
 
     alpha = material_alpha_tests(data, model)
-    for shape, material, tnames in cgfx.meshes(data, model):
+    for shape, material, tnames in cgfx.meshes(data, model, names=list(texs)):
         if material in skip_meshes:
             continue
         verts, tris = cgfx.read_geometry(data, shape, model)
         if pose:
             verts = skeleton.pose_vertices(data, shape, verts, model)
-        tname = next((t for t in tnames if t in texs), None)
+        tname = next((t for t in sorted(tnames, key=lambda t: "mask" in t) if t in texs), None)     # a gloss mask is never the colour
         ref = alpha.get(material)
         part = Part(material, texture(tname) if tname else -1, 0 if ref is None else 1 | (ref << 8))
         for v in verts:

@@ -41,4 +41,6 @@ def config_text(b):
         out += ["", "[trace]"] + ["hook = %s" % t.replace(":", ", ") for t in tr]
     for o in b.cfg.get("outfits", []):
         out += ["", "[outfit]", "villager = %s" % o["villager"], "id = %s" % o["id"], "model = %s" % o["model"], "variant = %s" % o["variant"]]
+    from .story import config_lines
+    out += config_lines(b)
     return "\n".join(out) + "\n"

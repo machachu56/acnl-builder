@@ -102,13 +102,15 @@ struct Building {
     int rect[4];
     bool hide_furniture;
     bool game;                    /* one of the game's own buildings: its model stays, it may be moved or removed */
+    bool near_station;            /* dx, dy count from the station instead of the town hall */
+    int map_as;                   /* the building ID whose icon the town map draws for it (default: the alias) */
     bool remove;                  /* (game) take it out of the town */
 };
 
 /* the plugin has no static constructors (no libc start-up), so every struct is plain data, zeroed, and set up here */
 void init_building(Building &b) {
     memset(&b, 0, sizeof b);
-    b.slot = b.alias = b.icon_frame = b.scene = -1;
+    b.slot = b.alias = b.icon_frame = b.scene = b.map_as = -1;
     b.room = 48;
     b.x = b.y = -1;
     b.dx = 4;
@@ -151,6 +153,8 @@ void set_key(Building &b, const char *key, const char *val) {
     else if (!strcmp(key, "hide_furniture")) b.hide_furniture = v != 0;
     else if (!strcmp(key, "game")) b.game = v != 0;
     else if (!strcmp(key, "remove")) b.remove = v != 0;
+    else if (!strcmp(key, "near")) b.near_station = !strcmp(val, "station");
+    else if (!strcmp(key, "map_as")) b.map_as = (int)v;
     else if (!strcmp(key, "rect")) {
         const char *p = val;
         int k = 0;
@@ -202,6 +206,7 @@ void set_page_key(Page &p, const char *key, const char *val) {
 }  // namespace
 #include "vehicles.h"
 #include "furniture.h"
+#include "story.h"
 namespace {
 
 /* outfits of villagers: [outfit] villager, id, model, variant (the variant holds the repainted model) */
@@ -270,7 +275,10 @@ void load_config() {
     Building *cur = nullptr;
     Page *page = nullptr;
     Outfit *outfit = nullptr;
-    bool inprobe = false, inchars = false, intrace = false, infurniture = false;
+    bool inprobe = false, inchars = false, intrace = false, infurniture = false, instory = false, intalk = false, invars = false;
+    st::Prop *prop = nullptr;
+    st::Npc *npc = nullptr;
+    st::Quest *quest = nullptr;
     veh::Config *vcfg = nullptr;
     for (char *line = text; *line;) {
         char *end = line;
@@ -283,8 +291,17 @@ void load_config() {
             page = nullptr;
             outfit = nullptr;
             vcfg = nullptr;
-            inprobe = inchars = intrace = infurniture = false;
+            inprobe = inchars = intrace = infurniture = instory = intalk = invars = false;
+            prop = nullptr;
+            quest = nullptr;
+            npc = nullptr;
             if (!memcmp(line, "[probe]", 7)) { cur = nullptr; inprobe = true; }
+            else if (!memcmp(line, "[story]", 7)) { cur = nullptr; instory = true; st::g_on = true; }
+            else if (!memcmp(line, "[talk]", 6)) { cur = nullptr; intalk = true; }
+            else if (!memcmp(line, "[vars]", 6)) { cur = nullptr; invars = true; }
+            else if (!memcmp(line, "[prop]", 6)) { cur = nullptr; if (st::g_np < st::MAX_PROPS) { prop = &st::g_p[st::g_np++]; st::init_prop(*prop); } }
+            else if (!memcmp(line, "[npc]", 5)) { cur = nullptr; if (st::g_nnpc < st::MAX_NPCS) { npc = &st::g_npc[st::g_nnpc++]; st::init_npc(*npc); } }
+            else if (!memcmp(line, "[quest]", 7)) { cur = nullptr; if (st::g_nq < st::MAX_QUESTS) { quest = &st::g_q[st::g_nq++]; memset(quest, 0, sizeof *quest); } }
             else if (!memcmp(line, "[furniture]", 11)) { cur = nullptr; infurniture = true; }
             else if (!memcmp(line, "[characters]", 12)) { cur = nullptr; inchars = true; }
             else if (!memcmp(line, "[trace]", 7)) { cur = nullptr; intrace = true; }
@@ -296,7 +313,7 @@ void load_config() {
             else if (!memcmp(line, "[building]", 10)) { cur = g_nb < MAX_MODS ? &g_b[g_nb++] : nullptr; if (cur) init_building(*cur); }
             else if (!memcmp(line, "[page]", 6) && cur && cur->npages < MAX_PAGES) page = &cur->pages[cur->npages++];
             else cur = nullptr;                                    /* a section this plugin does not read (e.g. [outfit]) */
-        } else if (cur || outfit || inprobe || inchars || intrace || vcfg || infurniture) {
+        } else if (cur || outfit || inprobe || inchars || intrace || vcfg || infurniture || instory || intalk || invars || prop || quest || npc) {
             char *eq = line;
             while (*eq && *eq != '=') eq++;
             if (*eq == '=') {
@@ -308,6 +325,12 @@ void load_config() {
                 char *ve = val + strlen(val);
                 while (ve > val && is_space(ve[-1])) *--ve = 0;
                 if (vcfg) veh::set_key(*vcfg, line, val);
+                else if (instory) st::set_story_key(line, val);
+                else if (intalk) st::set_talk_key(line, val);
+                else if (invars) st::set_vars_key(line, val);
+                else if (prop) st::set_prop_key(*prop, line, val);
+                else if (quest) st::set_quest_key(*quest, line, val);
+                else if (npc) st::set_npc_key(*npc, line, val);
                 else if (infurniture) ftr::set_key(line, val);
                 else if (intrace) set_trace_key(line, val);
                 else if (inchars) set_char_key(line, val);
@@ -415,7 +438,7 @@ void ensure_buildings() {
             for (int i = 0; i < MAX_BUILDINGS; i++) {
                 uint32_t e = blk + 8 + i * 4;
                 uint16_t id = acnl_rd16(e);
-                if (id >= 0x50 && id <= 0x53) { x = acnl_rd8(e + 2) + b.dx; y = acnl_rd8(e + 3) + b.dy; }
+                if (b.near_station ? (id >= 0x54 && id <= 0x57) : (id >= 0x50 && id <= 0x53)) { x = acnl_rd8(e + 2) + b.dx; y = acnl_rd8(e + 3) + b.dy; }
             }
             if (x < 0) { x = 0x4C + b.dx - 4; y = 0x20 + b.dy - 7; }
         }
@@ -648,6 +671,7 @@ sv::Program g_prog;
 bool g_scripts = false;
 int32_t g_vars[64];
 uint32_t g_rng = 0x2545F491u;
+int32_t g_answer = 0;               /* answer(n) of an @on_talk handler: the case a conversation's branch takes */
 struct AddReq { uint32_t profile; int tx, tz; };
 const int MAX_ADDS = 4;
 AddReq g_adds[MAX_ADDS];
@@ -687,7 +711,8 @@ bool script_call(void *, int id, const int32_t *a, int n, int32_t *ret, bool *ha
     case 8: *ret = (int32_t)(script_rand() % 100u) < a[0]; *has = true; return true;
     case 9: *ret = a[0] > 0 ? (int32_t)(script_rand() % (uint32_t)a[0]) : 0; *has = true; return true;
     case 10: if (a[0] < 0 || a[0] >= 64) return false; *ret = g_vars[a[0]]; *has = true; return true;
-    case 11: if (a[0] < 0 || a[0] >= 64) return false; g_vars[a[0]] = a[1]; return true;
+    case 11: if (a[0] < 0 || a[0] >= 64) return false; if (g_vars[a[0]] != a[1]) st::g_dirty = true; g_vars[a[0]] = a[1]; return true;
+    case 33: g_answer = a[0]; return true;
     case 12: acnl_log("script: %s %d", cstr(a[0]), (int)a[1]); return true;
     case 13: case 14:
         for (int i = 0; i < g_noutfits; i++)
@@ -714,6 +739,7 @@ bool script_call(void *, int id, const int32_t *a, int n, int32_t *ret, bool *ha
 }
 
 void script_run(const sv::Handler &h) {
+    if (st::g_on) st::vars_follow_town();
     sv::Host host{nullptr, script_call};
     int rc = sv::run(h.code, h.len, h.nlocals, host);
     if (rc) acnl_log("script: a handler stopped with error %d (1 too long, 2 stack, 3 bad code, 4 division by zero, 5 failed built-in)", rc);
@@ -726,6 +752,7 @@ void script_fire(int kind, const char *building, const char *room, uint32_t num,
         const sv::Handler &h = g_prog.h[i];
         if (h.kind != kind) continue;
         if ((kind == sv::K_ACTOR || kind == sv::K_SPAWN) && !(num >= h.num && num <= (h.s2 != 0xFFFF ? (uint32_t)h.s2 : h.num))) continue;
+        if (kind == sv::K_TALK && !(building && sv::str_is(g_prog, h.s1, building))) continue;
         if (kind == sv::K_ENTER || kind == sv::K_LEAVE || kind == sv::K_ROOM) {
             if (!building || !sv::str_is(g_prog, h.s1, building)) continue;
             if (kind == sv::K_ROOM && !(room && sv::str_is(g_prog, h.s2, room))) continue;
@@ -736,6 +763,36 @@ void script_fire(int kind, const char *building, const char *room, uint32_t num,
         }
         script_run(h);
     }
+}
+
+/* ---- conversations that run scripts (story.h): the flow engine asks its receptor about each event and branch node */
+uint32_t flow_node(uint32_t node, uint32_t *param) {
+    uint32_t raw = node >= 0x100000 ? acnl_rd32(node + 4) : 0;
+    if (raw < 0x100000) return 0xFFFF;
+    *param = acnl_rd32(raw + 4) & 0xFFFF;
+    return acnl_rd16(raw + 0xA);
+}
+int g_flow_logs = 0;
+int hook_flow_event_pre(void *) {
+    uint32_t param, ev = flow_node(acnl_reg(2), &param);
+    if (st::g_debug && g_flow_logs++ < 400) acnl_log("story: flow event %u (param %u) from %08x", (unsigned)ev, (unsigned)param, (unsigned)acnl_return_address());
+    if (ev != st::STORY_EVENT) return ACNL_CONTINUE;
+    if (param < (uint32_t)st::g_ntalk) script_fire(sv::K_TALK, st::g_talk[param], nullptr, 0);
+    acnl_set_reg(0, 1);
+    return ACNL_SKIP;
+}
+int hook_flow_branch_pre(void *) {
+    uint32_t param, q = flow_node(acnl_reg(2), &param);
+    if (st::g_debug && g_flow_logs++ < 400) acnl_log("story: flow branch %u (param %u) from %08x", (unsigned)q, (unsigned)param, (unsigned)acnl_return_address());
+    if (q != st::STORY_BRANCH) return ACNL_CONTINUE;
+    g_answer = 0;
+    if (param < (uint32_t)st::g_ntalk && !strcmp(st::g_talk[param], "speaker")) g_answer = st::speaker(g_player);   /* built in */
+    else if (param < (uint32_t)st::g_ntalk) script_fire(sv::K_TALK, st::g_talk[param], nullptr, 0);
+    if (st::g_debug) acnl_log("story: %s answers %d", param < (uint32_t)st::g_ntalk ? st::g_talk[param] : "?", (int)g_answer);
+    uint32_t out = acnl_reg(1);
+    if (out >= 0x100000) acnl_wr32(out, (uint32_t)(g_answer < 0 ? 0 : g_answer));
+    acnl_set_reg(0, 1);
+    return ACNL_SKIP;
 }
 
 Saved s_script_pos;
@@ -998,6 +1055,7 @@ void hook_player_update_post(void *) {
     g_frames++;
     veh::tick(g_player, 0);
     ftr::tick(g_player);
+    st::tick(g_player);
     window_watch();
     doors_tick();
     doors_face_player();
@@ -1042,6 +1100,7 @@ void pin_tick() {
     }
 }
 extern "C" ACNL_EXPORT("acnl_mod_call_done") void acnl_mod_call_done(uint32_t id, uint32_t result) {
+    if (id >= st::CALL_NPC) { st::npc_created(id, result); return; }
     if (id < 100 || id >= 100 + MAX_ADDS) return;
     const AddReq &a = g_adds_run[id - 100];
     CharDef *cd = char_def(a.profile, false);
@@ -1116,7 +1175,7 @@ int hook_map_icon_for_pre(void *) {
     uint32_t id = acnl_reg(1);
     push(s_map, (uint32_t)(uintptr_t)g_map_b);
     g_map_b = new_id_building(id);
-    if (g_map_b) acnl_set_reg(1, (uint32_t)g_map_b->alias);       /* drawn like the alias building (police station...) */
+    if (g_map_b) acnl_set_reg(1, (uint32_t)(g_map_b->map_as >= 0 ? g_map_b->map_as : g_map_b->alias));   /* drawn like the alias building (police station...) */
     return ACNL_CONTINUE;
 }
 void hook_map_icon_for_post(void *) { g_map_b = (Building *)(uintptr_t)pop(s_map); }
@@ -1151,24 +1210,32 @@ void hook_flow_load_post(void *) {
     read_cstr(acnl_rd32(recept + 0x108), path, sizeof path);
     acnl_log("trace: conversation file %s (scene %u)", path, (unsigned)acnl_rd8(0x956322));
 }
+/* the flow's name is a sead::SafeString (vtable, const char *) at r2; r3 != 0 on the call that loads the file (a second call with
+   r3 = 0 starts it). The talk receptor keeps its character at +0xF0. */
+uint32_t g_flow_name_obj = 0;
 int hook_flow_load_pre(void *) {
-    uint32_t recept = acnl_reg(1), r3 = acnl_reg(3);
+    uint32_t recept = acnl_reg(1), r2 = acnl_reg(2), r3 = acnl_reg(3);
     push(s_flow, recept);
     char name[64];
-    read_cstr(acnl_reg(2), name, sizeof name);
+    read_cstr(r2 >= 0x100000 ? acnl_rd32(r2 + 4) : 0, name, sizeof name);
+    uint32_t actor = acnl_rd32(recept + 0xF0);
     int who = -1;
     for (int k = 0; k < MAX_ADDS; k++)
-        if (g_talker[k] && recept >= g_talker[k] && recept < g_talker[k] + 0x4000) who = k;
-    acnl_log("builder: conversation %s (r3 %08x) for %08x%s, from %08x", name, (unsigned)r3, (unsigned)recept,
+        if (g_talker[k] && (actor == g_talker[k] || (recept >= g_talker[k] && recept < g_talker[k] + 0x4000))) who = k;
+    acnl_log("builder: conversation %s (r3 %08x) for %08x (character %08x)%s, from %08x", name, (unsigned)r3, (unsigned)recept, (unsigned)actor,
              who >= 0 ? " (an added character)" : "", (unsigned)acnl_return_address());
     if (who < 0) return ACNL_CONTINUE;
     CharDef *cd = char_def(acnl_rd16(g_talker[who] + 0xc), false);
-    if (!cd || !cd->flow[0] || !strcmp(cd->flow, name)) return ACNL_CONTINUE;
+    const char *flow = cd && cd->flow[0] ? cd->flow : nullptr;
+    if (!flow || !r3 || r2 < 0x100000 || !strcmp(flow, name)) return ACNL_CONTINUE;
     if (!g_entry_guest) g_entry_guest = acnl_alloc(sizeof g_entry_name, 4);
-    if (!g_entry_guest) return ACNL_CONTINUE;
-    acnl_write(g_entry_guest, cd->flow, strlen(cd->flow) + 1);
-    acnl_set_reg(2, g_entry_guest);
-    acnl_log("builder: the added character talks with %s instead", cd->flow);
+    if (!g_flow_name_obj) g_flow_name_obj = acnl_alloc(8, 4);
+    if (!g_entry_guest || !g_flow_name_obj) return ACNL_CONTINUE;
+    acnl_write(g_entry_guest, flow, strlen(flow) + 1);
+    acnl_wr32(g_flow_name_obj, acnl_rd32(r2));                 /* the same kind of string, pointing at ours */
+    acnl_wr32(g_flow_name_obj + 4, g_entry_guest);
+    acnl_set_reg(2, g_flow_name_obj);
+    acnl_log("builder: the character talks with %s instead", flow);
     return ACNL_CONTINUE;
 }
 void restore_spots();
@@ -1398,7 +1465,15 @@ extern "C" int acnl_mod_init(void) {
     if ((any_links || g_trace || g_debug_enter || (g_scripts && g_nb)) && acnl_hook(FN_GOTO_SCENE, hook_goto_pre, nullptr, nullptr) != 0) return -1;
     const bool vehicles = veh::g_nv > 0;
     const bool furniture = ftr::g_c.on && ftr::init();     /* (after the vehicles: a car's item stays the car's) */
-    if ((any_links || vehicles || furniture) && acnl_hook(FN_ACTOR_CREATE, hook_actor_track_pre, hook_actor_track_post, nullptr) != 0) return -1;
+    const bool story = st::g_on;
+    if (story) {
+        st::init(g_vars);
+        if (acnl_hook(st::FN_FLOW_EVENT, hook_flow_event_pre, nullptr, nullptr) != 0 || acnl_hook(st::FN_FLOW_BRANCH, hook_flow_branch_pre, nullptr, nullptr) != 0)
+            acnl_log("story: cannot hook the conversations' events and branches");
+        if (acnl_hook(st::FN_CREATE, st::hook_create_pre, st::hook_create_post, nullptr) != 0) acnl_log("story: cannot hook the actor creation");
+        if ((st::g_debug || st::g_nnpc) && acnl_hook(FN_FLOW_LOAD, hook_flow_load_pre, hook_flow_load_post, nullptr) != 0) acnl_log("story: cannot hook the conversation loader");
+    }
+    if ((any_links || vehicles || furniture || story) && acnl_hook(FN_ACTOR_CREATE, hook_actor_track_pre, hook_actor_track_post, nullptr) != 0) return -1;
     if (furniture && (acnl_hook(ftr::FN_MAKE_TILE, ftr::hook_make_tile_pre, nullptr, nullptr) != 0 ||
                       acnl_hook(ftr::FN_TRAMPLE_SET, ftr::hook_tile_set_pre, nullptr, nullptr) != 0)) { acnl_log("furniture: cannot hook the town's items: off"); ftr::g_c.on = false; }
     if (vehicles) {
@@ -1427,8 +1502,8 @@ extern "C" int acnl_mod_init(void) {
     /* after the scripts' hook: a script may turn a furniture request into a character before the exhibits are hidden */
     if (any_hide && acnl_hook(FN_ACTOR_CREATE, hook_actor_create_pre, nullptr, nullptr) != 0) return -1;
     if (any_jmp && acnl_hook(FN_JMP_BLOCK, hook_jmp_block_pre, hook_jmp_block_post, nullptr) != 0) return -1;
-    if (g_scripts && g_ntrace && acnl_hook(FN_FLOW_LOAD, hook_flow_load_pre, hook_flow_load_post, nullptr) != 0) acnl_log("builder: cannot hook the conversation loader");
-    if ((g_scripts || any_links || vehicles || furniture) && acnl_hook(FN_PLAYER_UPDATE, nullptr, hook_player_update_post, nullptr) != 0) acnl_log("builder: cannot hook the player's update");
+    if (g_scripts && g_ntrace && !(story && (st::g_debug || st::g_nnpc)) && acnl_hook(FN_FLOW_LOAD, hook_flow_load_pre, hook_flow_load_post, nullptr) != 0) acnl_log("builder: cannot hook the conversation loader");
+    if ((g_scripts || any_links || vehicles || furniture || story) && acnl_hook(FN_PLAYER_UPDATE, nullptr, hook_player_update_post, nullptr) != 0) acnl_log("builder: cannot hook the player's update");
     /* the tracing hooks last: the SDK has 128 hook slots, the mod's own come first */
     for (int i = 0; i < g_ntrace; i++)
         if (acnl_hook(g_trace_fn[i].addr, hook_trace_pre, hook_trace_post, (void *)(intptr_t)i) != 0) acnl_log("trace: cannot hook %#x", (unsigned)g_trace_fn[i].addr);

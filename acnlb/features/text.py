@@ -41,6 +41,25 @@ def check(text):
     return out
 
 
+def fit(text):
+    """{name} / {town} become the game's codes; a text without line breaks of its own is wrapped into boxes of 3 lines x 34"""
+    text = text.replace("{name}", "{5.0:}").replace("{town}", "{5.5:}")
+    if "\n" in text or "{0.4:}" in text:
+        return text
+    for a, b in (("« ", "«\0"), (" »", "\0»"), (" :", "\0:"), (" !", "\0!"), (" ?", "\0?"), (" ;", "\0;")):   # French spacing stays with its word
+        text = text.replace(a, b)
+    lines, cur = [], ""
+    for w in text.split(" "):
+        if cur and plain_len(cur + " " + w) > MAX_LINE:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = cur + " " + w if cur else w
+    if cur:
+        lines.append(cur)
+    return "{0.4:}".join("\n".join(lines[i:i + MAX_ROWS]) for i in range(0, len(lines), MAX_ROWS)).replace("\0", " ")
+
+
 def split_file(data):
     return msbt.umsbt_split(data) if data[:8] != b"MsgStdBn" else [data]
 

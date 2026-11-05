@@ -22,6 +22,13 @@ mode    sequence: the conversation becomes these messages. A message may end wit
                   {"id": "k1", "has_bells": 100, "next": .., "else": ..}   goes on to `next` if the player has at least
                                                                100 Bells, else to `else` (the game's branch 0/34)
                   {"id": "a1", "action": {"sub": 0, "event": 1, "param": 100}}   any action of the game, raw
+                  Steps that ask the project's scripts (the runtime plugin's story module):
+                  {"id": "r1", "run": "free_v0"}                runs the scripts' @on_talk("free_v0") handlers, then goes on
+                  {"id": "s1", "switch": "marie_route", "cases": ["m1", "m5", "end"]}   goes on with the case the
+                                                               @on_talk("marie_route") handler answers (answer(n), 0 = first)
+                  {"switch": "speaker", "cases": [...]}        built in: the story's character being talked to (its index in
+                                                               the story's characters; the last case when it is none of them)
+                  A message's text may be a list of lines: one speech, each line in message boxes of its own.
         rewrite:  the game's own messages are replaced one by one and the conversation keeps its structure: its questions,
                   answers ("Yes!") and branches stay as the game has them
 
@@ -145,7 +152,7 @@ def compile(b):
         if len([st for st in steps if is_message(st)]) > len(slots):
             raise ValueError("event %s: at most %d messages for this conversation (got %d)" % (ev["id"], len(slots), len(steps)))
         flow = FlowFile(b.game(flow_path, vname))
-        for line in build_sequence(flow, ev["id"], steps, slots, extra, talk, text_key, first):
+        for line in build_sequence(flow, ev["id"], steps, slots, extra, talk, text_key, first, b.cfg.setdefault("talk_points", [])):
             b.warn(line)
         b.put(flow_path, flow.build(), vname)
         n_q = sum(1 for st in steps if st.get("choices"))
@@ -289,13 +296,20 @@ def text_slots(flow, talk, first=None, goodbye=None):
 CHARGE = (0, 1)            # action: take `param` Bells from the player (Harriet after a haircut: 3000; confirmed in game)
 HAS_BELLS = (0, 34)        # branch: case 0 if the player has at least `param` Bells, case 1 if not (the Dream Suite's 500)
 MAX_BELLS = 0xFFFF         # the amount is a 16-bit field of the node
+STORY_EVENT, STORY_BRANCH = 0x7D0, 0x7D1     # the plugin's story module answers these (plugin/story.h): numbers the game does not use
 
 
 def is_message(st):
-    return not (st.get("action") or "charge" in st or "has_bells" in st)
+    return not (st.get("action") or "charge" in st or "has_bells" in st or st.get("run") or st.get("switch"))
 
 
-def build_sequence(flow, ev_id, steps, slots, extra, talk, text_key, first=None):
+def talk_point(points, name):
+    if name not in points:
+        points.append(name)
+    return points.index(name)
+
+
+def build_sequence(flow, ev_id, steps, slots, extra, talk, text_key, first=None, points=None):
     """the steps as new nodes of `flow` (the conversation's entries lead to the first); their texts go into `extra`
     (text edits of `talk`). Returns warnings."""
     warns = []
@@ -323,6 +337,12 @@ def build_sequence(flow, ev_id, steps, slots, extra, talk, text_key, first=None)
             flow.add_event(CHARGE[0], CHARGE[1], amount(st, "charge"))
         elif "has_bells" in st:                  # its cases are set below, once every step has its node
             flow.add_branch(HAS_BELLS[0], HAS_BELLS[1], amount(st, "has_bells"), [END, END])
+        elif st.get("run"):
+            flow.add_event(0, STORY_EVENT, talk_point(points if points is not None else [], st["run"]))
+        elif st.get("switch"):
+            if not 1 <= len(st.get("cases") or []) <= 16:
+                raise ValueError("event %s: a switch needs 1 to 16 cases" % ev_id)
+            flow.add_branch(0, STORY_BRANCH, talk_point(points if points is not None else [], st["switch"]), [END] * len(st["cases"]))
         else:
             flow.add_message(fid, slots[n][1])
             slot_of[k] = slots[n]
@@ -340,7 +360,12 @@ def build_sequence(flow, ev_id, steps, slots, extra, talk, text_key, first=None)
 
     for k, st in enumerate(steps):
         sid = st.get("id") or "m%d" % (k + 1)
-        if st.get("action") or "charge" in st:   # an action goes on with the next step (or where it says)
+        if st.get("switch"):                     # case k: where cases[k] says
+            t0 = struct.unpack_from("<H", flow.nodes[msg_nodes[k]], 14)[0]
+            for j, c in enumerate(st["cases"]):
+                flow.table[t0 + j] = target(c or "end", k, "case %d of %s" % (j, sid))
+            continue
+        if st.get("action") or "charge" in st or st.get("run"):   # an action goes on with the next step (or where it says)
             struct.pack_into("<H", flow.nodes[msg_nodes[k]], 8, target(st.get("next"), k, "action %s" % sid))
             continue
         if "has_bells" in st:                    # enough: `next` (default the step below); not enough: `else` (default the end)
@@ -348,7 +373,8 @@ def build_sequence(flow, ev_id, steps, slots, extra, talk, text_key, first=None)
             flow.table[t0] = target(st.get("next"), k, "step %s" % sid)
             flow.table[t0 + 1] = target(st.get("else") or "end", k, "step %s" % sid)
             continue
-        text = dict(st["text"])
+        # a list of lines is one speech: each line wrapped on its own, a new message box between them
+        text = {l: "{0.4:}".join(textmod.fit(x) for x in v) if isinstance(v, list) else textmod.fit(v) for l, v in st["text"].items()}
         choices = [c for c in st.get("choices") or [] if any((c.get("text") or {}).values())]
         if choices:
             if not MIN_CHOICES <= len(choices) <= MAX_CHOICES:

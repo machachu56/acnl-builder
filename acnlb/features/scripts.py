@@ -210,6 +210,7 @@ def compile(b):
                 raise ValueError("script handler %s would fail at %s-%s: %s" % (h.name, seg["start"], seg["end"], seg["error"]))
     b.add("acnlb.script", blob)
     b.cfg["scripts"] = len(merged.handlers)
+    b.cfg["script_vars"] = list(merged.vars)          # their names: the story module keeps them per town
     b.note("scripts: %d trigger(s), %d bytes" % (len(merged.handlers), len(blob)))
     import ast
     from ..script import actions as A
