@@ -36,12 +36,41 @@ def decode(data, w, h, fmt):
     """tiled pixels -> rows of (r, g, b, a), top row first"""
     if fmt in (12, 13):
         return etc1.decode(data, w, h, fmt == 13)
+    if fmt in READ_ONLY:
+        return _decode_small(data, w, h, fmt)
     return etc1.decode_raw(data, w, h, {0: 9, 1: 6, 2: 7, 3: 5, 4: 8, 5: 3, 7: 0, 8: 1}[fmt])
+
+
+# formats that are only ever read (some furniture models use them): HILO8 (two 8-bit channels), LA4 (luminance in the high
+# nibble, alpha in the low one), L4 and A4 (two pixels a byte, the first in the low nibble)
+READ_ONLY = (6, 9, 10, 11)
+
+
+def _decode_small(data, w, h, fmt):
+    img = [[(0, 0, 0, 0)] * w for _ in range(h)]
+    n4 = lambda v: v * 17
+    for ty in range(0, h, 8):
+        for tx in range(0, w, 8):
+            base = ((ty // 8) * (w // 8) + tx // 8) * 64
+            for y in range(8):
+                for x in range(8):
+                    i = base + etc1._morton(x, y)
+                    if fmt == 6:
+                        px = (data[i * 2 + 1], data[i * 2], 0, 255) if i * 2 + 1 < len(data) else (0, 0, 0, 255)
+                    elif fmt == 9:
+                        v = data[i] if i < len(data) else 0
+                        px = (n4(v >> 4),) * 3 + (n4(v & 15),)
+                    else:
+                        v = data[i // 2] if i // 2 < len(data) else 0
+                        v = (v >> 4) if i & 1 else (v & 15)
+                        px = (n4(v),) * 3 + (255,) if fmt == 10 else (255, 255, 255, n4(v))
+                    img[ty + y][tx + x] = px
+    return img
 
 
 def decode_texture(data, t):
     """rows of RGBA for a cgfx.Texture of a file (mip level 0)"""
-    if not supported(t.fmt):
+    if not supported(t.fmt) and t.fmt not in READ_ONLY:
         raise ValueError("texture format %s is not supported yet" % NAMES.get(t.fmt, t.fmt))
     return decode(data[t.data_off:t.data_off + t.size], t.w, t.h, t.fmt)
 

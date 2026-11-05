@@ -114,9 +114,11 @@ def material_alpha_tests(data, model=0):
     return out
 
 
-def from_game_model(path, model=0, retexture=None, skip_meshes=()):
+def from_game_model(path, model=0, retexture=None, skip_meshes=(), pose=False):
     """a model of the game's RomFS (e.g. "/Item/Model/rmk_car_spt.bcres") as a prop; retexture = {texture name: rows}
-    replaces textures (remake colours...); meshes whose material name is in skip_meshes are left out"""
+    replaces textures (remake colours...); meshes whose material name is in skip_meshes are left out; pose: vertices
+    bound to bones are moved to where their bones hold them at rest (furniture made of parts: chairs, clocks...)"""
+    from . import skeleton
     data = rom.read(path)
     texs = {t.name: t for t in cgfx.textures(data)}
     prop = Prop(path.rsplit("/", 1)[-1].rsplit(".", 1)[0])
@@ -138,6 +140,8 @@ def from_game_model(path, model=0, retexture=None, skip_meshes=()):
         if material in skip_meshes:
             continue
         verts, tris = cgfx.read_geometry(data, shape, model)
+        if pose:
+            verts = skeleton.pose_vertices(data, shape, verts, model)
         tname = next((t for t in tnames if t in texs), None)
         ref = alpha.get(material)
         part = Part(material, texture(tname) if tname else -1, 0 if ref is None else 1 | (ref << 8))

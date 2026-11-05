@@ -312,6 +312,22 @@ def objects_preview(req, q):
     return {"parts": parts, "size": [round(hi[i] - lo[i], 1) for i in range(3)], "front": info["front"], "triangles": prop.triangles()}
 
 
+@route("GET", "/api/furniture/items")
+def furniture_items(req, q):
+    from .features import furniture as ftrfeature
+    return {"items": ftrfeature.catalog()}
+
+
+@route("GET", "/api/furniture/preview")
+def furniture_preview(req, q):
+    """a furniture item's model for the 3D preview (as /api/objects/preview)"""
+    from .features import furniture as ftrfeature
+    try:
+        return ftrfeature.preview(int((q.get("id") or ["0"])[0], 0))
+    except KeyError as e:
+        raise ApiError(str(e), 404)
+
+
 @route("POST", "/api/interior/preview")
 def int_preview(req, q):
     b = req.json()

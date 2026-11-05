@@ -31,6 +31,8 @@ def config_text(b):
         out += ["", "[vehicle]"]
         for k, val in v.items():
             out.append("%s = %s" % (k, _val(val)))
+    if b.cfg.get("furniture"):
+        out += ["", "[furniture]"] + ["%s = %s" % (k, _val(val)) for k, val in b.cfg["furniture"].items()]
     if b.cfg.get("characters"):
         out += ["", "[characters]"] + ["%s = %d, %s" % (k, prof, v) for k, prof, v in b.cfg["characters"]]
     import os

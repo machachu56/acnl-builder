@@ -201,6 +201,7 @@ void set_page_key(Page &p, const char *key, const char *val) {
 
 }  // namespace
 #include "vehicles.h"
+#include "furniture.h"
 namespace {
 
 /* outfits of villagers: [outfit] villager, id, model, variant (the variant holds the repainted model) */
@@ -269,7 +270,7 @@ void load_config() {
     Building *cur = nullptr;
     Page *page = nullptr;
     Outfit *outfit = nullptr;
-    bool inprobe = false, inchars = false, intrace = false;
+    bool inprobe = false, inchars = false, intrace = false, infurniture = false;
     veh::Config *vcfg = nullptr;
     for (char *line = text; *line;) {
         char *end = line;
@@ -282,8 +283,9 @@ void load_config() {
             page = nullptr;
             outfit = nullptr;
             vcfg = nullptr;
-            inprobe = inchars = intrace = false;
+            inprobe = inchars = intrace = infurniture = false;
             if (!memcmp(line, "[probe]", 7)) { cur = nullptr; inprobe = true; }
+            else if (!memcmp(line, "[furniture]", 11)) { cur = nullptr; infurniture = true; }
             else if (!memcmp(line, "[characters]", 12)) { cur = nullptr; inchars = true; }
             else if (!memcmp(line, "[trace]", 7)) { cur = nullptr; intrace = true; }
             else if (!memcmp(line, "[outfit]", 8)) { cur = nullptr; if (g_noutfits < MAX_OUTFITS) outfit = &g_outfit[g_noutfits++]; }
@@ -294,7 +296,7 @@ void load_config() {
             else if (!memcmp(line, "[building]", 10)) { cur = g_nb < MAX_MODS ? &g_b[g_nb++] : nullptr; if (cur) init_building(*cur); }
             else if (!memcmp(line, "[page]", 6) && cur && cur->npages < MAX_PAGES) page = &cur->pages[cur->npages++];
             else cur = nullptr;                                    /* a section this plugin does not read (e.g. [outfit]) */
-        } else if (cur || outfit || inprobe || inchars || intrace || vcfg) {
+        } else if (cur || outfit || inprobe || inchars || intrace || vcfg || infurniture) {
             char *eq = line;
             while (*eq && *eq != '=') eq++;
             if (*eq == '=') {
@@ -306,6 +308,7 @@ void load_config() {
                 char *ve = val + strlen(val);
                 while (ve > val && is_space(ve[-1])) *--ve = 0;
                 if (vcfg) veh::set_key(*vcfg, line, val);
+                else if (infurniture) ftr::set_key(line, val);
                 else if (intrace) set_trace_key(line, val);
                 else if (inchars) set_char_key(line, val);
                 else if (inprobe) set_probe_key(line, val); else if (outfit) set_outfit_key(*outfit, line, val); else if (page) set_page_key(*page, line, val); else set_key(*cur, line, val);
@@ -994,6 +997,7 @@ void window_watch() {
 void hook_player_update_post(void *) {
     g_frames++;
     veh::tick(g_player, 0);
+    ftr::tick(g_player);
     window_watch();
     doors_tick();
     doors_face_player();
@@ -1393,7 +1397,10 @@ extern "C" int acnl_mod_init(void) {
     g_debug_enter = acnl_getenv("BUILDER_DEBUG_ENTER", tr, sizeof tr) >= 0;
     if ((any_links || g_trace || g_debug_enter || (g_scripts && g_nb)) && acnl_hook(FN_GOTO_SCENE, hook_goto_pre, nullptr, nullptr) != 0) return -1;
     const bool vehicles = veh::g_nv > 0;
-    if ((any_links || vehicles) && acnl_hook(FN_ACTOR_CREATE, hook_actor_track_pre, hook_actor_track_post, nullptr) != 0) return -1;
+    const bool furniture = ftr::g_c.on && ftr::init();     /* (after the vehicles: a car's item stays the car's) */
+    if ((any_links || vehicles || furniture) && acnl_hook(FN_ACTOR_CREATE, hook_actor_track_pre, hook_actor_track_post, nullptr) != 0) return -1;
+    if (furniture && (acnl_hook(ftr::FN_MAKE_TILE, ftr::hook_make_tile_pre, nullptr, nullptr) != 0 ||
+                      acnl_hook(ftr::FN_TRAMPLE_SET, ftr::hook_tile_set_pre, nullptr, nullptr) != 0)) { acnl_log("furniture: cannot hook the town's items: off"); ftr::g_c.on = false; }
     if (vehicles) {
         field::default_blocked();
         field::load_radius("fgcol.bin");
@@ -1421,7 +1428,7 @@ extern "C" int acnl_mod_init(void) {
     if (any_hide && acnl_hook(FN_ACTOR_CREATE, hook_actor_create_pre, nullptr, nullptr) != 0) return -1;
     if (any_jmp && acnl_hook(FN_JMP_BLOCK, hook_jmp_block_pre, hook_jmp_block_post, nullptr) != 0) return -1;
     if (g_scripts && g_ntrace && acnl_hook(FN_FLOW_LOAD, hook_flow_load_pre, hook_flow_load_post, nullptr) != 0) acnl_log("builder: cannot hook the conversation loader");
-    if ((g_scripts || any_links || vehicles) && acnl_hook(FN_PLAYER_UPDATE, nullptr, hook_player_update_post, nullptr) != 0) acnl_log("builder: cannot hook the player's update");
+    if ((g_scripts || any_links || vehicles || furniture) && acnl_hook(FN_PLAYER_UPDATE, nullptr, hook_player_update_post, nullptr) != 0) acnl_log("builder: cannot hook the player's update");
     /* the tracing hooks last: the SDK has 128 hook slots, the mod's own come first */
     for (int i = 0; i < g_ntrace; i++)
         if (acnl_hook(g_trace_fn[i].addr, hook_trace_pre, hook_trace_post, (void *)(intptr_t)i) != 0) acnl_log("trace: cannot hook %#x", (unsigned)g_trace_fn[i].addr);

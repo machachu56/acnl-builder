@@ -188,13 +188,30 @@ void to_model(const Vehicle &v, float wx, float wz, float *lx, float *lz) {
     *lz = s * dx + c * dz;
 }
 
+/* a footprint in the flat world: centre (x, z), half length along (ax, az), half width along (bx, bz) */
+struct Box { float x, z, ax, az, bx, bz; };
+Box box(const Vehicle &v, float hl, float hw) {
+    Box b = {v.x, v.z, 0, 0, 0, 0};
+    to_world(v, hl, 0, &b.ax, &b.az);
+    to_world(v, 0, hw, &b.bx, &b.bz);
+    b.ax -= v.x; b.az -= v.z; b.bx -= v.x; b.bz -= v.z;
+    return b;
+}
+/* something else in the town solid for a car (furniture.h sets it): is `to` on it? Not what `from` (where the car stands
+   now, or null) is already on, so the car can drive off it */
+bool (*g_solid)(const Box &to, const Box *from) = nullptr;
+
 /* can the vehicle stand at (x, z) facing `head`? (every point of its footprint on drivable ground, within a step of
-   from_h when check_step, clear of trees and rocks); out_h: the ground height in its middle */
+   from_h when check_step, clear of trees, rocks and furniture); out_h: the ground height in its middle */
 bool fits(const Vehicle &v0, float x, float z, float head, float from_h, float *out_h, bool check_step, float *pitch_out = nullptr,
           float *roll_out = nullptr) {
     Vehicle v = v0;
     v.x = x; v.z = z; v.head = head;
     float hl = v.c.length * 0.5f - 5, hw = v.c.width * 0.5f - 5;
+    if (g_solid) {
+        Box from = box(v0, hl, hw);
+        if (g_solid(box(v, hl, hw), v0.placed ? &from : nullptr)) return false;
+    }
     static const float px[9] = {1, 1, -1, -1, 1, -1, 0, 0, 0}, pz[9] = {1, -1, 1, -1, 0, 0, 1, -1, 0};
     float hs[9];
     for (int i = 0; i < 9; i++) {
@@ -776,7 +793,8 @@ bool exit_spot(const Vehicle &v, float *x, float *z) {
         float wx, wz, h;
         uint8_t kind;
         to_world(v, tries[i][0], tries[i][1], &wx, &wz);
-        if (field::ground(wx, wz, &h, &kind) && !field::g_blocked[kind] && absf(h - v.y) < 10 && field::clear_of_items(wx, wz, 6)) {
+        if (field::ground(wx, wz, &h, &kind) && !field::g_blocked[kind] && absf(h - v.y) < 10 && field::clear_of_items(wx, wz, 6) &&
+            !(g_solid && g_solid(Box{wx, wz, 6, 0, 0, 6}, nullptr))) {
             *x = wx;
             *z = wz;
             return true;
